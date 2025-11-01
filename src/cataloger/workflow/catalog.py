@@ -7,10 +7,11 @@ from typing import Any
 import anthropic
 import structlog
 import yaml
-from dbos import DBOS, SetWorkflowID, Workflow
+from dbos import DBOS
 
 from ..agent.loop import AgentLoop
 from ..container.pool import ContainerPool
+from ..context import generate_context_summary, strip_html_tags
 from ..storage.s3 import S3Storage, generate_timestamp
 
 log = structlog.get_logger()
@@ -79,20 +80,15 @@ class CatalogWorkflow:
         )
 
         try:
-            # Fetch previous scripts for feedback loop
-            previous_catalog_script = self._get_previous_script(
-                s3_prefix, "catalog_script.py"
-            )
-            previous_summary_script = self._get_previous_script(
-                s3_prefix, "summary_script.py"
-            )
+            # Fetch previous context summary for feedback loop
+            previous_context = self._get_previous_context(s3_prefix)
 
             # Run cataloging agent
             catalog_html = self._run_cataloging_agent(
                 runtime=runtime,
                 prompt=cataloging_prompt,
                 tables=tables,
-                previous_script=previous_catalog_script,
+                previous_context=previous_context,
             )
 
             # Extract and save cataloging script
@@ -121,7 +117,7 @@ class CatalogWorkflow:
                 prompt=summary_prompt,
                 s3_prefix=s3_prefix,
                 current_timestamp=timestamp,
-                previous_script=previous_summary_script,
+                previous_context=previous_context,
             )
 
             # Extract and save summary script
@@ -165,7 +161,7 @@ class CatalogWorkflow:
         runtime: Any,
         prompt: str,
         tables: list[str],
-        previous_script: tuple[str, str] | None = None,
+        previous_context: str | None = None,
     ) -> str:
         """Run the cataloging agent."""
         agent = AgentLoop(
@@ -175,13 +171,9 @@ class CatalogWorkflow:
 
         context = {"tables": tables}
 
-        # Add previous script to context if available
-        if previous_script:
-            prev_timestamp, prev_code = previous_script
-            context["previous_script"] = {
-                "timestamp": prev_timestamp,
-                "code": prev_code,
-            }
+        # Add previous context summary if available
+        if previous_context:
+            context["previous_context"] = previous_context
 
         return agent.run(system_prompt=prompt, context=context)
 
@@ -191,7 +183,7 @@ class CatalogWorkflow:
         prompt: str,
         s3_prefix: str,
         current_timestamp: str,
-        previous_script: tuple[str, str] | None = None,
+        previous_context: str | None = None,
     ) -> str:
         """Run the summary agent."""
         agent = AgentLoop(
@@ -204,45 +196,58 @@ class CatalogWorkflow:
             "current_timestamp": current_timestamp,
         }
 
-        # Add previous script to context if available
-        if previous_script:
-            prev_timestamp, prev_code = previous_script
-            context["previous_script"] = {
-                "timestamp": prev_timestamp,
-                "code": prev_code,
-            }
+        # Add previous context summary if available
+        if previous_context:
+            context["previous_context"] = previous_context
 
         return agent.run(system_prompt=prompt, context=context)
 
-    def _get_previous_script(
-        self, s3_prefix: str, filename: str
-    ) -> tuple[str, str] | None:
-        """Get the most recent script for feedback loop.
+    def _get_previous_context(self, s3_prefix: str) -> str | None:
+        """Get previous context summary for feedback loop.
+
+        Generates HTML summary of previous catalog state (including
+        catalog results, scripts, and comments), then strips HTML tags
+        for token efficiency.
 
         Args:
             s3_prefix: S3 prefix
-            filename: Script filename (e.g., "catalog_script.py")
 
         Returns:
-            Tuple of (timestamp, script_content) or None
+            Plain text context summary, or None if no previous catalog exists
         """
-        result = self.s3_storage.get_latest_script(s3_prefix, filename)
+        try:
+            # Check if there are any previous timestamps
+            timestamps = self.s3_storage.list_timestamps(s3_prefix, limit=1)
+            if not timestamps:
+                log.info("workflow.no_previous_context", s3_prefix=s3_prefix)
+                return None
 
-        if result:
-            log.info(
-                "workflow.previous_script_found",
-                s3_prefix=s3_prefix,
-                filename=filename,
-                timestamp=result[0],
-            )
-        else:
-            log.info(
-                "workflow.previous_script_not_found",
-                s3_prefix=s3_prefix,
-                filename=filename,
+            # Generate context summary HTML
+            context_html = generate_context_summary(
+                storage=self.s3_storage,
+                prefix=s3_prefix,
+                timestamp=None,  # Use latest
             )
 
-        return result
+            # Strip HTML tags for token efficiency
+            context_text = strip_html_tags(context_html)
+
+            log.info(
+                "workflow.previous_context_generated",
+                s3_prefix=s3_prefix,
+                timestamp=timestamps[0],
+                size=len(context_text),
+            )
+
+            return context_text
+
+        except Exception as e:
+            log.warning(
+                "workflow.previous_context_error",
+                s3_prefix=s3_prefix,
+                error=str(e),
+            )
+            return None
 
     def _load_prompt(self, env_var: str) -> str:
         """Load a prompt from base64-encoded YAML in environment."""

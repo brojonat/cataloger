@@ -20,17 +20,32 @@ uv pip install -e ".[dev]"
 ### 2. Set up environment
 
 ```bash
-./scripts/setup-env.sh
+# For MinIO (local S3, no AWS needed - recommended!)
+uv run cataloger admin setup-env --minio
+
+# OR for AWS S3
+uv run cataloger admin setup-env
 ```
 
-Edit `.env.server` and set:
+This creates `.env.server` with encoded prompts and configuration.
+
+Then edit `.env.server` and set your LLM API key:
 
 ```bash
-export ANTHROPIC_API_KEY=sk-ant-your-key-here
+vim .env.server
+# Set: export LLM_API_KEY=sk-ant-your-key-here
+```
+
+**For MinIO**: Start MinIO (S3 config already set in .env.server!)
+```bash
+./scripts/start-dev-services.sh
+```
+
+**For AWS S3**: Also set in `.env.server`:
+```bash
 export S3_BUCKET=your-test-bucket
 export AWS_ACCESS_KEY_ID=your-access-key
 export AWS_SECRET_ACCESS_KEY=your-secret-key
-export AUTH_SECRET=your-random-secret-for-jwt
 ```
 
 ### 3. Build the container

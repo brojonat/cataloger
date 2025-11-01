@@ -14,11 +14,11 @@ fi
 echo "Generating catalog for e-commerce database..."
 echo ""
 
-# Get absolute path
-DB_ABS_PATH=$(cd "$(dirname "$DB_PATH")" && pwd)/$(basename "$DB_PATH")
+# Container path (data/ is mounted to /data in container)
+CONTAINER_DB_PATH="/data/sample_ecommerce.duckdb"
 
 uv run cataloger catalog \
-  --db-conn "duckdb:///${DB_ABS_PATH}" \
+  --db-conn "duckdb:///${CONTAINER_DB_PATH}" \
   --tables "users,products,orders,order_items" \
   --s3-prefix "test/ecommerce"
 

@@ -19,7 +19,7 @@ Set up environment files and encode prompts.
 
 **After running:**
 - Edit `.env.server` and set:
-  - `ANTHROPIC_API_KEY`
+  - `LLM_API_KEY`
   - `S3_BUCKET` and AWS credentials
   - `AUTH_SECRET`
 
@@ -153,7 +153,7 @@ HOST=0.0.0.0
 PORT=8000
 
 # API keys
-ANTHROPIC_API_KEY=sk-ant-...
+LLM_API_KEY=sk-ant-...
 AUTH_SECRET=your-secret
 
 # S3
@@ -203,7 +203,7 @@ chmod +x scripts/*.sh
 ### Environment not loaded
 
 ```bash
-Error: Missing ANTHROPIC_API_KEY
+Error: Missing LLM_API_KEY
 ```
 
 **Fix:**

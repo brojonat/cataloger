@@ -16,6 +16,7 @@ from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel, Field
 
 from cataloger.container.pool import ContainerPool
+from cataloger.context import generate_context_summary, strip_html_tags
 from cataloger.storage.s3 import S3Storage
 from cataloger.workflow.catalog import CatalogWorkflow
 
@@ -99,20 +100,25 @@ async def lifespan(app: FastAPI):
 
     log.info("service.startup")
 
-    # Initialize Anthropic client
-    anthropic_api_key = os.getenv("ANTHROPIC_API_KEY")
-    if not anthropic_api_key:
-        log.error("Missing ANTHROPIC_API_KEY environment variable")
+    # Initialize LLM client (currently using Anthropic)
+    llm_api_key = os.getenv("LLM_API_KEY")
+    if not llm_api_key:
+        log.error("Missing LLM_API_KEY environment variable")
         sys.exit(1)
-    anthropic_client = anthropic.Anthropic(api_key=anthropic_api_key)
+    anthropic_client = anthropic.Anthropic(api_key=llm_api_key)
 
     # Initialize S3 storage
     s3_bucket = os.getenv("S3_BUCKET")
     s3_region = os.getenv("S3_REGION", "us-east-1")
+    s3_endpoint_url = os.getenv("S3_ENDPOINT_URL")  # For MinIO/LocalStack
     if not s3_bucket:
         log.error("Missing S3_BUCKET environment variable")
         sys.exit(1)
-    s3_storage = S3Storage(bucket=s3_bucket, region=s3_region)
+    s3_storage = S3Storage(
+        bucket=s3_bucket,
+        region=s3_region,
+        endpoint_url=s3_endpoint_url,
+    )
 
     # Initialize container pool
     container_image = os.getenv("CONTAINER_IMAGE", "cataloger-agent:latest")
@@ -169,6 +175,23 @@ class CatalogResponse(BaseModel):
     catalog_uri: str
     summary_uri: str
     s3_prefix: str
+
+
+class CommentRequest(BaseModel):
+    """Request to add a comment to a catalog."""
+
+    prefix: str = Field(..., description="S3 prefix (e.g., 'customer-123/orders')")
+    timestamp: str = Field(..., description="Timestamp of catalog to comment on")
+    user: str = Field(..., description="Username of commenter")
+    comment: str = Field(..., description="Comment text")
+
+
+class CommentResponse(BaseModel):
+    """Response from adding a comment."""
+
+    uri: str
+    user: str
+    timestamp: str
 
 
 # -------------------------
@@ -288,6 +311,97 @@ async def list_catalog_files(prefix: str, timestamp: str, request: Request):
             "catalogs": catalogs
         }
     )
+
+
+@app.get("/catalog/context", response_class=HTMLResponse, tags=["catalog"])
+async def get_catalog_context(
+    prefix: str,
+    timestamp: str | None = None,
+    strip_tags: bool = False
+):
+    """Generate context summary HTML from previous catalog state.
+
+    This endpoint bundles together:
+    - Previous catalog results (HTML)
+    - Previous summary analysis (HTML)
+    - Python scripts that were executed
+    - User comments/feedback
+
+    Args:
+        prefix: S3 prefix (e.g., 'customer-123/orders')
+        timestamp: Specific timestamp, or None for latest
+        strip_tags: If True, return plain text with HTML tags removed (for token efficiency)
+
+    Returns:
+        HTML summary document (or plain text if strip_tags=True)
+    """
+    if not s3_storage:
+        raise HTTPException(status_code=503, detail="S3 storage not initialized")
+
+    try:
+        context_html = generate_context_summary(s3_storage, prefix, timestamp)
+
+        if strip_tags:
+            # Return plain text for token efficiency
+            context_text = strip_html_tags(context_html)
+            return HTMLResponse(content=f"<pre>{context_text}</pre>")
+        else:
+            return HTMLResponse(content=context_html)
+    except Exception as e:
+        log.error("catalog.context.error", error=str(e), exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to generate context summary: {str(e)}"
+        )
+
+
+@app.post("/catalog/comment", tags=["catalog"], response_model=CommentResponse)
+def add_catalog_comment(
+    request: CommentRequest,
+    claims: Dict = Depends(require_claims),
+):
+    """Add a comment to a catalog.
+
+    Comments are stored in S3 alongside the catalog results at:
+    s3://{bucket}/{prefix}/{timestamp}/comments/{user}-{date}.txt
+
+    This allows human feedback to be included in future catalog contexts.
+    """
+    if not s3_storage:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="S3 storage not initialized",
+        )
+
+    log.info(
+        "catalog.comment",
+        user=claims.get("sub"),
+        prefix=request.prefix,
+        timestamp=request.timestamp,
+        comment_user=request.user,
+    )
+
+    try:
+        uri = s3_storage.write_comment(
+            prefix=request.prefix,
+            timestamp=request.timestamp,
+            user=request.user,
+            comment=request.comment,
+        )
+
+        log.info("catalog.comment.complete", uri=uri)
+        return CommentResponse(
+            uri=uri,
+            user=request.user,
+            timestamp=request.timestamp,
+        )
+
+    except Exception as e:
+        log.error("catalog.comment.error", error=str(e), exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to add comment: {str(e)}",
+        )
 
 
 @app.post("/catalog", tags=["catalog"], response_model=CatalogResponse)

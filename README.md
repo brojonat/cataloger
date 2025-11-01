@@ -27,6 +27,31 @@ human-readable reports that serve as temporal records of your data's state.
   ["Code MCPs"](https://lucumr.pocoo.org/2025/8/18/code-mcps/). This
   enables compositional, reviewable analysis with persistent state.
 
+## Quick Start
+
+```bash
+# 1. Setup (one command!)
+uv run cataloger admin setup-env --minio
+# Edit .env.server and add your LLM_API_KEY
+
+# 2. Start services
+./scripts/start-dev-services.sh  # MinIO (local S3)
+./scripts/build-container.sh     # Agent container
+./scripts/bootstrap-db.sh         # Sample databases
+./scripts/run-server.sh          # Cataloger server
+
+# 3. Generate a catalog
+export CATALOGER_AUTH_TOKEN=$(uv run cataloger generate-token your-secret)
+uv run cataloger catalog \
+  --db-conn "duckdb:////data/sample_ecommerce.duckdb" \
+  --tables "users,orders" \
+  --s3-prefix "test/ecommerce"
+
+# 4. View at: http://localhost:8000
+```
+
+**See [GETTING_STARTED.md](./GETTING_STARTED.md) for detailed setup.**
+
 ## Architecture
 
 ```

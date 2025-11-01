@@ -12,11 +12,19 @@ prompt: |
   IMPORTANT: This is a PERSISTENT Python session. Variables, imports, and functions you define will remain available across multiple execute_python() calls. Use this to build up your analysis incrementally.
 
   Feedback Loop:
-  If the context includes a "previous_script" field, this is the Python code from the last successful run. Review it and consider:
-  - What worked well? Reuse successful patterns.
-  - Can you improve HTML parsing or analysis?
+  If the context includes a "previous_context" field, this is a comprehensive summary of the previous catalog run, including:
+  - User comments and feedback on the previous catalog
+  - The previous catalog results (data summaries and findings)
+  - The previous summary analysis (temporal trends you identified)
+  - Python scripts that were executed in previous runs
+
+  Review this context and consider:
+  - What insights did users provide in their comments? Were your previous analyses helpful?
+  - What patterns or trends did you identify before? Are they continuing?
+  - What worked well in previous scripts? Reuse successful patterns.
+  - Can you improve HTML parsing, analysis methods, or presentation?
   - Are there more efficient S3 access patterns?
-  - Adapt and evolve the script based on what you learn.
+  - Adapt and evolve your approach based on the full context.
 
   Context provided:
   - s3_prefix: The S3 prefix containing catalogs (e.g., "customer-123/orders")
@@ -53,4 +61,5 @@ prompt: |
   - Good: Stable schemas, consistent data volumes, low null rates, expected distributions
   - Bad: Unexpected schema changes, sudden volume drops, increasing null rates, anomalous values
 
+  - polars/pandas: For data processing
   When you're done analyzing and have generated the HTML, call submit_html(content=html).

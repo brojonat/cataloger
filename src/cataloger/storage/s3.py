@@ -22,6 +22,7 @@ class S3Storage:
         region: str = "us-east-1",
         access_key_id: str | None = None,
         secret_access_key: str | None = None,
+        endpoint_url: str | None = None,
     ):
         """Initialize S3 storage.
 
@@ -30,9 +31,11 @@ class S3Storage:
             region: AWS region
             access_key_id: AWS access key (defaults to environment)
             secret_access_key: AWS secret key (defaults to environment)
+            endpoint_url: Custom S3 endpoint (e.g., for MinIO: http://localhost:9000)
         """
         self.bucket = bucket
         self.region = region
+        self.endpoint_url = endpoint_url
 
         # Initialize boto3 client
         session_kwargs: dict[str, Any] = {"region_name": region}
@@ -43,6 +46,10 @@ class S3Storage:
                     "aws_secret_access_key": secret_access_key,
                 }
             )
+
+        # Add custom endpoint for S3-compatible services (MinIO, LocalStack, etc.)
+        if endpoint_url:
+            session_kwargs["endpoint_url"] = endpoint_url
 
         self.s3 = boto3.client("s3", **session_kwargs)
 
@@ -220,6 +227,97 @@ class S3Storage:
 
         log.info("storage.list_catalogs", prefix=prefix, timestamp=timestamp, count=len(catalogs))
         return catalogs
+
+    def write_comment(
+        self, prefix: str, timestamp: str, user: str, comment: str
+    ) -> str:
+        """Write a user comment to S3.
+
+        Args:
+            prefix: S3 prefix (e.g., "customer-123/orders")
+            timestamp: ISO timestamp of the catalog being commented on
+            user: Username of commenter
+            comment: Comment text
+
+        Returns:
+            S3 URI of written comment
+        """
+        comment_timestamp = generate_timestamp()
+        filename = f"{user}-{comment_timestamp}.txt"
+        key = f"{prefix}/{timestamp}/comments/{filename}"
+
+        self.s3.put_object(
+            Bucket=self.bucket,
+            Key=key,
+            Body=comment.encode("utf-8"),
+            ContentType="text/plain",
+        )
+
+        uri = f"s3://{self.bucket}/{key}"
+        log.info("storage.write_comment", uri=uri, user=user)
+        return uri
+
+    def list_comments(self, prefix: str, timestamp: str) -> list[dict[str, str]]:
+        """List all comments for a given catalog timestamp.
+
+        Args:
+            prefix: S3 prefix
+            timestamp: ISO timestamp
+
+        Returns:
+            List of dicts with "filename", "key", "user", "date" for each comment
+        """
+        key_prefix = f"{prefix}/{timestamp}/comments/"
+
+        try:
+            response = self.s3.list_objects_v2(Bucket=self.bucket, Prefix=key_prefix)
+        except Exception as e:
+            log.warning("storage.list_comments.error", error=str(e))
+            return []
+
+        comments = []
+        for obj in response.get("Contents", []):
+            key = obj["Key"]
+            if key.endswith(".txt"):
+                filename = key.split("/")[-1]
+                # Parse filename: user-timestamp.txt
+                parts = filename.rsplit("-", 1)
+                if len(parts) == 2:
+                    user = parts[0]
+                    date = parts[1].replace(".txt", "")
+                    comments.append({
+                        "filename": filename,
+                        "key": key,
+                        "user": user,
+                        "date": date,
+                    })
+
+        # Sort by date, newest first
+        comments.sort(key=lambda x: x["date"], reverse=True)
+        log.info("storage.list_comments", prefix=prefix, timestamp=timestamp, count=len(comments))
+        return comments
+
+    def read_comment(self, prefix: str, timestamp: str, filename: str) -> str | None:
+        """Read a comment file from S3.
+
+        Args:
+            prefix: S3 prefix
+            timestamp: ISO timestamp
+            filename: Comment filename (e.g., "alice-2024-01-15T10:00:00Z.txt")
+
+        Returns:
+            Comment text, or None if not found
+        """
+        key = f"{prefix}/{timestamp}/comments/{filename}"
+
+        try:
+            response = self.s3.get_object(Bucket=self.bucket, Key=key)
+            content = response["Body"].read().decode("utf-8")
+            log.info("storage.read_comment", key=key)
+            return content
+        except self.s3.exceptions.NoSuchKey:
+            log.info("storage.read_comment.not_found", key=key)
+            return None
 
     def get_config(self) -> dict[str, Any]:
         """Return S3 config dict suitable for passing to containers."""

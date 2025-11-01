@@ -48,6 +48,14 @@ class ContainerPool:
 
     def _create_container(self) -> Container:
         """Create a new container and start it."""
+        # Prepare volume mounts for local database files
+        volumes = {}
+
+        # Mount data directory if it exists (for DuckDB files)
+        data_dir = os.path.abspath("data")
+        if os.path.exists(data_dir):
+            volumes[data_dir] = {"bind": "/data", "mode": "ro"}  # Read-only
+
         container = self.client.containers.run(
             self.image_name,
             detach=True,
@@ -55,6 +63,7 @@ class ContainerPool:
             mem_limit="1g",
             cpu_quota=100000,  # 1 CPU
             network_mode="bridge",
+            volumes=volumes,
         )
         return container
 

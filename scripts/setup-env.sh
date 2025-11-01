@@ -1,7 +1,18 @@
 #!/usr/bin/env bash
 # Setup environment for Cataloger development
+#
+# Usage:
+#   ./scripts/setup-env.sh [--minio]
+#
+# Options:
+#   --minio    Use MinIO template for local S3-compatible storage
 
 set -e
+
+USE_MINIO=false
+if [ "$1" = "--minio" ]; then
+    USE_MINIO=true
+fi
 
 echo "Setting up environment for Cataloger..."
 
@@ -16,10 +27,24 @@ if [ ! -f "prompts/summary_agent.yaml" ]; then
     exit 1
 fi
 
-# Create .env.server from example if it doesn't exist
+# Create .env.server from template if it doesn't exist
 if [ ! -f ".env.server" ]; then
-    cp .env.server.example .env.server
-    echo "✓ Created .env.server from example"
+    if [ "$USE_MINIO" = true ]; then
+        cp .env.server.minio .env.server
+        echo "✓ Created .env.server from MinIO template"
+        echo "  MinIO will provide local S3-compatible storage"
+        echo "  Start MinIO: ./scripts/start-dev-services.sh"
+    else
+        cp .env.server.example .env.server
+        echo "✓ Created .env.server from example"
+        echo "  You'll need to configure AWS S3 credentials"
+    fi
+else
+    echo "ℹ️  .env.server already exists, skipping creation"
+    if [ "$USE_MINIO" = true ]; then
+        echo "  To use MinIO, update S3_ENDPOINT_URL and credentials in .env.server"
+        echo "  Or delete .env.server and run: ./scripts/setup-env.sh --minio"
+    fi
 fi
 
 # Encode prompts

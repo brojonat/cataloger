@@ -46,7 +46,7 @@ make build-container
 ```
 
 4. Edit `.env.server` with your credentials:
-   - `ANTHROPIC_API_KEY`: Your Anthropic API key
+   - `LLM_API_KEY`: Your Anthropic API key
    - `S3_BUCKET`: Your S3 bucket name
    - `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY`: AWS credentials
    - `AUTH_SECRET`: Strong secret for JWT signing
