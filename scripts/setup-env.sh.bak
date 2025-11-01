@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+
+# Helper script to set up environment files with encoded prompts
+
+set -e
+
+echo "Setting up environment for Cataloger..."
+
+# Check if prompts exist
+if [ ! -f "prompts/cataloging_agent.yaml" ]; then
+    echo "Error: prompts/cataloging_agent.yaml not found"
+    exit 1
+fi
+
+if [ ! -f "prompts/summary_agent.yaml" ]; then
+    echo "Error: prompts/summary_agent.yaml not found"
+    exit 1
+fi
+
+# Create .env.server from example if it doesn't exist
+if [ ! -f ".env.server" ]; then
+    cp .env.server.example .env.server
+    echo "✓ Created .env.server from example"
+fi
+
+# Encode prompts
+echo "Encoding prompts..."
+CATALOGING_PROMPT=$(base64 -i prompts/cataloging_agent.yaml)
+SUMMARY_PROMPT=$(base64 -i prompts/summary_agent.yaml)
+
+# Update .env.server with encoded prompts
+if grep -q "^export CATALOGING_AGENT_PROMPT=" .env.server; then
+    # Update existing
+    sed -i.bak "s|^export CATALOGING_AGENT_PROMPT=.*|export CATALOGING_AGENT_PROMPT=\"${CATALOGING_PROMPT}\"|" .env.server
+    sed -i.bak "s|^export SUMMARY_AGENT_PROMPT=.*|export SUMMARY_AGENT_PROMPT=\"${SUMMARY_PROMPT}\"|" .env.server
+    rm .env.server.bak
+else
+    # Append new
+    echo "export CATALOGING_AGENT_PROMPT=\"${CATALOGING_PROMPT}\"" >> .env.server
+    echo "export SUMMARY_AGENT_PROMPT=\"${SUMMARY_PROMPT}\"" >> .env.server
+fi
+
+echo "✓ Encoded prompts and updated .env.server"
+echo ""
+echo "Next steps:"
+echo "  1. Edit .env.server and set your API keys and S3 configuration"
+echo "  2. Build the container: make build-container"
+echo "  3. Start the server: make run-server"

@@ -1,0 +1,54 @@
+<div class="catalog-display">
+    <div class="catalog-header">
+        <h4>{{ filename }}</h4>
+    </div>
+    <div class="catalog-body">
+        {{ content|safe }}
+    </div>
+</div>
+
+<style>
+.catalog-display {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    overflow: hidden;
+}
+
+.catalog-header {
+    padding: 1rem;
+    background: var(--background);
+    border-bottom: 1px solid var(--border);
+}
+
+.catalog-header h4 {
+    margin: 0;
+    color: var(--primary);
+}
+
+.catalog-body {
+    padding: 1rem;
+}
+
+/* Style embedded catalog HTML */
+.catalog-body table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 1rem 0;
+}
+
+.catalog-body th,
+.catalog-body td {
+    padding: 0.75rem;
+    text-align: left;
+    border: 1px solid var(--border);
+}
+
+.catalog-body th {
+    background: var(--background);
+    font-weight: 600;
+}
+
+.catalog-body tr:nth-child(even) {
+    background: var(--background);
+}
+</style>

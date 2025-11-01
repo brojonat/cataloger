@@ -1,0 +1,61 @@
+[project]
+name = "cataloger"
+version = "0.1.0"
+description = "LLM-powered database cataloging service"
+readme = "README.md"
+requires-python = ">=3.13"
+dependencies = [
+    "anthropic>=0.39.0",
+    "boto3>=1.35.0",
+    "click>=8.1.0",
+    "dbos>=2.0.0",
+    "docker>=7.1.0",
+    "fastapi>=0.115.0",
+    "ibis-framework[postgres,mysql,duckdb]>=9.5.0",
+    "polars>=1.13.0",
+    "prometheus-fastapi-instrumentator>=7.0.0",
+    "python-jose[cryptography]>=3.3.0",
+    "pyyaml>=6.0.0",
+    "requests>=2.32.0",
+    "structlog>=24.4.0",
+    "uvicorn[standard]>=0.32.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "ruff>=0.7.0",
+]
+
+[project.scripts]
+cataloger = "cataloger.cli:main"
+
+[build-system]
+requires = ["setuptools>=68.0.0"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+src = ["src", "server", "tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = ["E203", "W503"]
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+
+[tool.pytest.ini_options]
+python_files = ["test_*.py", "*_test.py", "*_tests.py"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"

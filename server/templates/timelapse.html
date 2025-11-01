@@ -1,0 +1,83 @@
+{% extends "base.html" %}
+
+{% block title %}Timelapse - {{ prefix }}{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+    <a href="/">Home</a> /
+    <span>{{ prefix }}</span> /
+    <span>Timelapse</span>
+</div>
+
+<h2>Catalog Timelapse</h2>
+<p class="subtitle">
+    <strong>Prefix:</strong> {{ prefix }}<br>
+    <strong>Total Snapshots:</strong> {{ timestamps|length }}
+</p>
+
+<div class="actions">
+    <a href="/database/current?prefix={{ prefix }}" class="button">View Latest</a>
+    <a href="/?prefix={{ prefix }}" class="button secondary">Back</a>
+</div>
+
+<div class="timelapse-viewer">
+    <div class="timeline">
+        <h3>Select Timestamp</h3>
+        <div class="timeline-list">
+            {% for ts in timestamps %}
+            <div
+                class="timeline-item {% if loop.first %}active{% endif %}"
+                hx-get="/api/catalog/list?prefix={{ prefix }}&timestamp={{ ts }}"
+                hx-target="#catalog-list"
+                hx-swap="innerHTML"
+                onclick="setActiveTimestamp(this)">
+                <span class="timestamp">{{ ts }}</span>
+                {% if loop.first %}<span class="badge">Latest</span>{% endif %}
+            </div>
+            {% endfor %}
+        </div>
+    </div>
+
+    <div class="catalog-panel">
+        <h3>Available Catalogs</h3>
+        <div id="catalog-list">
+            <!-- Loaded via htmx when timestamp selected -->
+            <div
+                hx-get="/api/catalog/list?prefix={{ prefix }}&timestamp={{ timestamps[0] }}"
+                hx-trigger="load"
+                hx-swap="innerHTML">
+                Loading...
+            </div>
+        </div>
+
+        <h3>Catalog Content</h3>
+        <div id="catalog-content" class="catalog-content">
+            <p class="hint">Select a catalog file from above to view</p>
+        </div>
+    </div>
+</div>
+
+<script>
+function setActiveTimestamp(element) {
+    document.querySelectorAll('.timeline-item').forEach(item => item.classList.remove('active'));
+    element.classList.add('active');
+}
+
+function loadCatalog(prefix, timestamp, filename, button) {
+    document.querySelectorAll('.catalog-file').forEach(item => item.classList.remove('active'));
+    button.classList.add('active');
+
+    htmx.ajax('GET', `/api/catalog/content?prefix=${prefix}&timestamp=${timestamp}&filename=${filename}`, {
+        target: '#catalog-content',
+        swap: 'innerHTML'
+    });
+}
+</script>
+
+<!-- Template for catalog list (rendered by HTMX) -->
+<template id="catalog-list-template">
+    <div class="catalog-files">
+        <!-- This will be populated by the API response -->
+    </div>
+</template>
+{% endblock %}

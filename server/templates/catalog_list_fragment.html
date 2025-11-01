@@ -1,0 +1,42 @@
+<div class="catalog-files">
+    {% if catalogs %}
+        {% for catalog in catalogs %}
+        <button
+            class="catalog-file {% if loop.first %}active{% endif %}"
+            onclick="loadCatalog('{{ prefix }}', '{{ timestamp }}', '{{ catalog.filename }}', this)">
+            📄 {{ catalog.filename }}
+        </button>
+        {% endfor %}
+    {% else %}
+        <p class="hint">No catalog files found for this timestamp</p>
+    {% endif %}
+</div>
+
+<style>
+.catalog-files {
+    display: flex;
+    flex-direction: column;
+    gap: 0.5rem;
+    margin-bottom: 2rem;
+}
+
+.catalog-file {
+    padding: 1rem;
+    background: var(--background);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    text-align: left;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.catalog-file:hover {
+    border-color: var(--primary);
+}
+
+.catalog-file.active {
+    background: var(--primary);
+    color: white;
+    border-color: var(--primary);
+}
+</style>

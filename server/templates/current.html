@@ -1,0 +1,54 @@
+{% extends "base.html" %}
+
+{% block title %}Current Catalog - {{ prefix }}{% endblock %}
+
+{% block content %}
+<div class="breadcrumb">
+    <a href="/">Home</a> /
+    <span>{{ prefix }}</span> /
+    <span>{{ timestamp }}</span>
+</div>
+
+<h2>Latest Catalog</h2>
+<p class="subtitle">
+    <strong>Prefix:</strong> {{ prefix }}<br>
+    <strong>Timestamp:</strong> {{ timestamp }}
+</p>
+
+<div class="actions">
+    <a href="/database/timelapse?prefix={{ prefix }}" class="button">View Timelapse</a>
+    <a href="/?prefix={{ prefix }}" class="button secondary">Back</a>
+</div>
+
+<div class="catalog-viewer">
+    <div class="catalog-tabs">
+        {% for catalog in catalogs %}
+        <button
+            class="tab {% if loop.first %}active{% endif %}"
+            hx-get="/api/catalog/content?prefix={{ prefix }}&timestamp={{ timestamp }}&filename={{ catalog.filename }}"
+            hx-target="#catalog-content"
+            hx-swap="innerHTML"
+            onclick="setActiveTab(this)">
+            {{ catalog.filename }}
+        </button>
+        {% endfor %}
+    </div>
+
+    <div id="catalog-content" class="catalog-content">
+        <!-- First catalog loaded via htmx -->
+        <div
+            hx-get="/api/catalog/content?prefix={{ prefix }}&timestamp={{ timestamp }}&filename={{ catalogs[0].filename }}"
+            hx-trigger="load"
+            hx-swap="innerHTML">
+            Loading...
+        </div>
+    </div>
+</div>
+
+<script>
+function setActiveTab(button) {
+    document.querySelectorAll('.tab').forEach(tab => tab.classList.remove('active'));
+    button.classList.add('active');
+}
+</script>
+{% endblock %}
