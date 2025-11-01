@@ -22,9 +22,10 @@ human-readable reports that serve as temporal records of your data's state.
   Downstream agents analyze sequences of catalogs to identify trends, anomalies,
   and changes over time.
 - **Code Over Tools**: Agents use a single `execute_python()` tool, following
-  the pattern from
-  [Armin Ronacher's "Tools"](https://lucumr.pocoo.org/2025/7/3/tools/). This
-  enables compositional, reviewable analysis.
+  the patterns from Armin Ronacher's articles on
+  ["Tools"](https://lucumr.pocoo.org/2025/7/3/tools/) and
+  ["Code MCPs"](https://lucumr.pocoo.org/2025/8/18/code-mcps/). This
+  enables compositional, reviewable analysis with persistent state.
 
 ## Architecture
 
