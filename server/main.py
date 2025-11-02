@@ -377,6 +377,38 @@ async def database_timelapse(request: Request, prefix: str):
     )
 
 
+@app.get("/catalog/comments", response_class=HTMLResponse, tags=["ui"])
+async def view_catalog_comments(request: Request, prefix: str, timestamp: str):
+    """View all comments for a specific catalog timestamp."""
+    if not s3_storage:
+        check_service_availability()
+        raise HTTPException(status_code=503, detail="S3 storage not initialized")
+
+    # Get all comments for this timestamp
+    comment_list = s3_storage.list_comments(prefix, timestamp)
+
+    # Read all comment contents
+    comments = []
+    for comment_info in comment_list:
+        content = s3_storage.read_comment(prefix, timestamp, comment_info["filename"])
+        if content:
+            comments.append({
+                "user": comment_info["user"],
+                "date": comment_info["date"],
+                "content": content,
+            })
+
+    return templates.TemplateResponse(
+        "comments.html",
+        {
+            "request": request,
+            "prefix": prefix,
+            "timestamp": timestamp,
+            "comments": comments,
+        },
+    )
+
+
 @app.get("/api/catalog/view", response_class=HTMLResponse, tags=["api"])
 async def view_catalog_file(prefix: str, timestamp: str, filename: str):
     """View a catalog file (HTML or script) directly."""

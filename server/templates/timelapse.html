@@ -77,11 +77,23 @@ endblock %} {% block content %}
           {% endif %}
         </td>
         <td>
-          {% if run.files.comments %}
-          <span class="comment-count">💬 {{ run.files.comments|length }}</span>
-          {% else %}
-          <span class="empty-cell">—</span>
-          {% endif %}
+          <div class="comment-cell">
+            {% if run.files.comments %}
+            <a
+              href="/catalog/comments?prefix={{ prefix }}&timestamp={{ run.timestamp }}"
+              class="comment-count-link"
+              target="_blank"
+            >
+              💬 {{ run.files.comments|length }}
+            </a>
+            {% endif %}
+            <button
+              class="btn-comment"
+              onclick="openCommentModal('{{ prefix }}', '{{ run.timestamp }}')"
+            >
+              ➕ Add Comment
+            </button>
+          </div>
         </td>
       </tr>
       {% endfor %}
@@ -94,4 +106,283 @@ endblock %} {% block content %}
   <p>No catalog runs found for this prefix.</p>
   <a href="/" class="button">Back to Home</a>
 </div>
-{% endif %} {% endblock %}
+{% endif %}
+
+<!-- Comment Modal -->
+<div id="commentModal" class="modal">
+  <div class="modal-content">
+    <div class="modal-header">
+      <h3>Add Comment</h3>
+      <button class="modal-close" onclick="closeCommentModal()">&times;</button>
+    </div>
+    <form id="commentForm" onsubmit="submitComment(event)">
+      <input type="hidden" id="commentPrefix" name="prefix" />
+      <input type="hidden" id="commentTimestamp" name="timestamp" />
+
+      <div class="form-group">
+        <label for="commentUser">Your Name</label>
+        <input
+          type="text"
+          id="commentUser"
+          name="user"
+          required
+          placeholder="Enter your name"
+        />
+      </div>
+
+      <div class="form-group">
+        <label for="commentText">Comment</label>
+        <textarea
+          id="commentText"
+          name="comment"
+          rows="5"
+          required
+          placeholder="Enter your comment about this catalog snapshot..."
+        ></textarea>
+      </div>
+
+      <div class="button-group">
+        <button type="button" class="button secondary" onclick="closeCommentModal()">
+          Cancel
+        </button>
+        <button type="submit" class="button">Submit Comment</button>
+      </div>
+
+      <div id="commentError" class="error-message" style="display: none;"></div>
+      <div id="commentSuccess" class="success-message" style="display: none;"></div>
+    </form>
+  </div>
+</div>
+
+<script>
+  // Get auth token from environment variable or localStorage
+  // For now, we'll use a placeholder - in production, this would come from proper auth
+  const AUTH_TOKEN = localStorage.getItem('cataloger_auth_token') || '';
+
+  function openCommentModal(prefix, timestamp) {
+    document.getElementById('commentPrefix').value = prefix;
+    document.getElementById('commentTimestamp').value = timestamp;
+    document.getElementById('commentModal').style.display = 'flex';
+    document.getElementById('commentError').style.display = 'none';
+    document.getElementById('commentSuccess').style.display = 'none';
+    document.getElementById('commentForm').reset();
+
+    // Restore hidden field values after reset
+    document.getElementById('commentPrefix').value = prefix;
+    document.getElementById('commentTimestamp').value = timestamp;
+  }
+
+  function closeCommentModal() {
+    document.getElementById('commentModal').style.display = 'none';
+  }
+
+  async function submitComment(event) {
+    event.preventDefault();
+
+    const formData = new FormData(event.target);
+    const data = {
+      prefix: formData.get('prefix'),
+      timestamp: formData.get('timestamp'),
+      user: formData.get('user'),
+      comment: formData.get('comment')
+    };
+
+    const errorEl = document.getElementById('commentError');
+    const successEl = document.getElementById('commentSuccess');
+
+    try {
+      const response = await fetch('/catalog/comment', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${AUTH_TOKEN}`
+        },
+        body: JSON.stringify(data)
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.detail || 'Failed to submit comment');
+      }
+
+      const result = await response.json();
+
+      // Show success message
+      successEl.textContent = 'Comment submitted successfully!';
+      successEl.style.display = 'block';
+      errorEl.style.display = 'none';
+
+      // Close modal after 1.5 seconds and reload page to show new comment
+      setTimeout(() => {
+        closeCommentModal();
+        location.reload();
+      }, 1500);
+
+    } catch (error) {
+      errorEl.textContent = error.message;
+      errorEl.style.display = 'block';
+      successEl.style.display = 'none';
+    }
+  }
+
+  // Close modal when clicking outside
+  window.onclick = function(event) {
+    const modal = document.getElementById('commentModal');
+    if (event.target === modal) {
+      closeCommentModal();
+    }
+  }
+</script>
+
+<style>
+  .comment-cell {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+  }
+
+  .comment-count-link {
+    padding: 0.5rem 1rem;
+    background: var(--primary);
+    color: white;
+    text-decoration: none;
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: background 0.2s;
+    white-space: nowrap;
+  }
+
+  .comment-count-link:hover {
+    background: var(--primary-dark);
+  }
+
+  .btn-comment {
+    padding: 0.5rem 1rem;
+    background: var(--success);
+    color: white;
+    border: none;
+    border-radius: var(--radius);
+    font-size: 0.875rem;
+    font-weight: 500;
+    cursor: pointer;
+    transition: opacity 0.2s;
+    white-space: nowrap;
+  }
+
+  .btn-comment:hover {
+    opacity: 0.9;
+  }
+
+  /* Modal styles */
+  .modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.5);
+    z-index: 1000;
+    align-items: center;
+    justify-content: center;
+    padding: 1rem;
+  }
+
+  .modal-content {
+    background: var(--surface);
+    border-radius: var(--radius);
+    max-width: 600px;
+    width: 100%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: var(--shadow-lg);
+  }
+
+  .modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 1.5rem;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .modal-header h3 {
+    margin: 0;
+    color: var(--primary);
+  }
+
+  .modal-close {
+    background: none;
+    border: none;
+    font-size: 2rem;
+    color: var(--text-muted);
+    cursor: pointer;
+    padding: 0;
+    width: 2rem;
+    height: 2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+  }
+
+  .modal-close:hover {
+    color: var(--text);
+  }
+
+  #commentForm {
+    padding: 1.5rem;
+  }
+
+  #commentForm .form-group {
+    margin-bottom: 1.5rem;
+  }
+
+  #commentForm label {
+    display: block;
+    margin-bottom: 0.5rem;
+    font-weight: 500;
+    color: var(--text);
+  }
+
+  #commentForm input[type="text"],
+  #commentForm textarea {
+    width: 100%;
+    padding: 0.75rem;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    font-size: 1rem;
+    font-family: inherit;
+  }
+
+  #commentForm input:focus,
+  #commentForm textarea:focus {
+    outline: none;
+    border-color: var(--primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+  }
+
+  #commentForm textarea {
+    resize: vertical;
+    min-height: 100px;
+  }
+
+  .error-message {
+    padding: 1rem;
+    background: #fee;
+    color: #c33;
+    border-radius: var(--radius);
+    margin-top: 1rem;
+  }
+
+  .success-message {
+    padding: 1rem;
+    background: #efe;
+    color: #3a3;
+    border-radius: var(--radius);
+    margin-top: 1rem;
+  }
+</style>
+
+{% endblock %}

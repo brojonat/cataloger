@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}Comments - {{ prefix }} - {{ timestamp }}{% endblock %}
+{% block content %}
+
+<div class="breadcrumb">
+  <a href="/">Home</a> /
+  <a href="/database/timelapse?prefix={{ prefix }}">{{ prefix }}</a> /
+  <span>Comments - {{ timestamp }}</span>
+</div>
+
+<h2>Comments</h2>
+<p class="subtitle">
+  <strong>Prefix:</strong> {{ prefix }}<br />
+  <strong>Timestamp:</strong> {{ timestamp }}<br />
+  <strong>Total Comments:</strong> {{ comments|length }}
+</p>
+
+<div class="actions">
+  <a href="/database/timelapse?prefix={{ prefix }}" class="button secondary">
+    ← Back to History
+  </a>
+</div>
+
+{% if comments %}
+<div class="catalog-table-container">
+  <table class="catalog-table">
+    <thead>
+      <tr>
+        <th>User</th>
+        <th>Date</th>
+        <th>Comment</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for comment in comments %}
+      <tr>
+        <td class="user-cell">
+          <strong>{{ comment.user }}</strong>
+        </td>
+        <td class="date-cell">
+          {{ comment.date }}
+        </td>
+        <td class="comment-content-cell">
+          <div class="comment-text">{{ comment.content }}</div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% else %}
+<div class="empty-state">
+  <p>No comments for this catalog snapshot.</p>
+  <a href="/database/timelapse?prefix={{ prefix }}" class="button">
+    Back to History
+  </a>
+</div>
+{% endif %}
+
+<style>
+  .user-cell {
+    white-space: nowrap;
+    min-width: 120px;
+  }
+
+  .date-cell {
+    white-space: nowrap;
+    min-width: 180px;
+    color: var(--text-muted);
+    font-size: 0.9em;
+  }
+
+  .comment-content-cell {
+    max-width: 600px;
+  }
+
+  .comment-text {
+    white-space: pre-wrap;
+    word-wrap: break-word;
+    line-height: 1.6;
+  }
+
+  .catalog-table tbody tr:hover {
+    background: var(--background);
+  }
+</style>
+
+{% endblock %}

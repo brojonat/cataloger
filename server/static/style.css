@@ -562,6 +562,15 @@ footer {
   background: var(--primary-dark);
 }
 
+code {
+  background: var(--background);
+  padding: 0.2rem 0.5rem;
+  border-radius: 4px;
+  font-family: "Monaco", "Courier New", monospace;
+  font-size: 0.9em;
+  color: var(--primary);
+}
+
 /* Responsive */
 @media (max-width: 768px) {
   .timelapse-viewer {

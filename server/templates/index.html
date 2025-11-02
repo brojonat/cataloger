@@ -6,6 +6,17 @@ block content %}
 </div>
 
 <div class="card">
+  <h3>Recently Updated Catalogs</h3>
+  <div
+    hx-get="/api/catalog/recent?limit=5"
+    hx-trigger="load"
+    hx-swap="innerHTML"
+  >
+    <p class="loading">Loading recent catalogs...</p>
+  </div>
+</div>
+
+<div class="card">
   <h3>View Catalog History</h3>
   <form action="/database/timelapse" method="get">
     <div class="form-group">
@@ -24,21 +35,13 @@ block content %}
 </div>
 
 <div class="card">
-  <h3>Recently Updated Catalogs</h3>
-  <div
-    hx-get="/api/catalog/recent?limit=10"
-    hx-trigger="load"
-    hx-swap="innerHTML"
-  >
-    <p class="loading">Loading recent catalogs...</p>
-  </div>
-</div>
-
-<div class="card">
   <h3>About</h3>
   <p>
     Cataloger uses LLM agents to explore databases and generate comprehensive
-    HTML catalogs. Each catalog includes:
+	catalogs. The autonomous agents inspect tables of your choosing and run
+	analytical queries to produce a qualitative summary of the current
+	data. Then, agents analyze the changes in these summaries over time
+	and can alert on anomolous reports.
   </p>
   <ul>
     <li>
@@ -50,10 +53,27 @@ block content %}
     </li>
     <li><strong>Temporal Trends</strong> - Changes over time, anomalies</li>
     <li>
-      <strong>Executable Scripts</strong> - Python code that generated each
+      <strong>Executable Scripts</strong> - Visibility into the code that generated each
       catalog
     </li>
   </ul>
+</div>
+
+<div class="card">
+  <h3>Authentication Token</h3>
+  <p>Set your authentication token to enable commenting on catalogs:</p>
+  <div class="form-group">
+    <label for="authToken">Auth Token:</label>
+    <input
+      type="text"
+      id="authToken"
+      placeholder="Paste your JWT token here"
+    />
+    <small>Generate a token using: <code>uv run cataloger generate-token your-secret</code></small>
+  </div>
+  <button class="button" onclick="setAuthToken()">Save Token</button>
+  <button class="button secondary" onclick="clearAuthToken()">Clear Token</button>
+  <p id="tokenStatus" style="margin-top: 1rem; color: var(--text-muted);"></p>
 </div>
 
 <div class="card">
@@ -64,4 +84,36 @@ block content %}
     <a href="/metrics" class="link-card">Metrics</a>
   </div>
 </div>
+
+<script>
+  // Load saved token on page load
+  window.addEventListener('DOMContentLoaded', () => {
+    const savedToken = localStorage.getItem('cataloger_auth_token');
+    if (savedToken) {
+      document.getElementById('authToken').value = savedToken;
+      document.getElementById('tokenStatus').textContent = '✓ Token is saved';
+      document.getElementById('tokenStatus').style.color = 'var(--success)';
+    }
+  });
+
+  function setAuthToken() {
+    const token = document.getElementById('authToken').value.trim();
+    if (token) {
+      localStorage.setItem('cataloger_auth_token', token);
+      document.getElementById('tokenStatus').textContent = '✓ Token saved successfully';
+      document.getElementById('tokenStatus').style.color = 'var(--success)';
+    } else {
+      document.getElementById('tokenStatus').textContent = '✗ Please enter a token';
+      document.getElementById('tokenStatus').style.color = '#c33';
+    }
+  }
+
+  function clearAuthToken() {
+    localStorage.removeItem('cataloger_auth_token');
+    document.getElementById('authToken').value = '';
+    document.getElementById('tokenStatus').textContent = 'Token cleared';
+    document.getElementById('tokenStatus').style.color = 'var(--text-muted)';
+  }
+</script>
+
 {% endblock %}

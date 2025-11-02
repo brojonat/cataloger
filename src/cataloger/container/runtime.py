@@ -40,6 +40,7 @@ class ContainerRuntime:
         self.db_connection_string = db_connection_string
         self.s3_config = s3_config or {}
         self._code_history: list[str] = []
+        self._output_history: list[str] = []
         self._session_id = str(uuid.uuid4())[:8]
 
         # Create a unique marker for detecting end of output
@@ -190,12 +191,18 @@ class ContainerRuntime:
             output = output[: -len("ERROR\n")]
             # Remove the output marker line
             output = output.replace(f"\n{self._output_marker}\n", "")
+            # Track the error output
+            self._output_history.append(output.rstrip())
             raise ExecutionError(f"Code execution failed:\n{output}")
 
         # Remove the output marker
         output = output.replace(f"\n{self._output_marker}\n", "")
 
-        return output.rstrip()
+        # Track the output
+        cleaned_output = output.rstrip()
+        self._output_history.append(cleaned_output)
+
+        return cleaned_output
 
     def get_code_history(self) -> list[str]:
         """Return the list of all code snippets executed in this session."""
@@ -204,30 +211,52 @@ class ContainerRuntime:
     def get_session_script(self) -> str:
         """Return the complete session as a standalone Python script.
 
-        This concatenates all executed code blocks, making it easy to
-        replay the session or turn it into automation.
+        This concatenates all executed code blocks with their outputs
+        (as comments), making it easy to replay the session or turn it
+        into automation while preserving what the agent observed.
         """
-        return "\n\n".join(self._code_history)
+        script_parts = []
+
+        for i, (code, output) in enumerate(zip(self._code_history, self._output_history)):
+            # Add code block
+            script_parts.append(f"# === Code Block {i + 1} ===")
+            script_parts.append(code)
+
+            # Always add output section for clarity
+            script_parts.append("")
+            script_parts.append(f"# --- Output {i + 1} ---")
+            if output:
+                # Comment each line of output
+                for line in output.split("\n"):
+                    script_parts.append(f"# {line}")
+            else:
+                script_parts.append("# (no output)")
+
+            script_parts.append("")  # Blank line between blocks
+
+        return "\n".join(script_parts)
 
     def reset(self) -> None:
         """Reset the Python interpreter state.
 
-        This kills the current interpreter and starts a fresh one,
-        clearing all variables and imports.
+        This kills the current interpreter, clearing all variables and imports.
+        Note: Does NOT start a new interpreter - that will happen when the
+        container is reused with a new ContainerRuntime instance.
         """
         # Kill the old interpreter
         self.container.exec_run(
             cmd=["sh", "-c", "pkill -f 'python -u /tmp/interpreter.py'"], user="agent"
         )
 
-        # Clear code history
+        # Clear code and output history
         self._code_history = []
+        self._output_history = []
 
-        # Start fresh interpreter
-        import time
-
-        time.sleep(0.5)
-        self._start_interpreter()
+        # Clean up temp files to prevent confusion
+        self.container.exec_run(
+            cmd=["sh", "-c", "rm -f /tmp/code_input.py /tmp/code_output.txt /tmp/interpreter.py"],
+            user="agent"
+        )
 
     def cleanup(self) -> None:
         """Stop and remove the container."""
