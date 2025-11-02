@@ -6,8 +6,7 @@ from typing import Any
 
 import anthropic
 import structlog
-import yaml
-from dbos import DBOS
+from dbos import DBOS, DBOSConfiguredInstance
 
 from ..agent.loop import AgentLoop
 from ..container.pool import ContainerPool
@@ -17,7 +16,8 @@ from ..storage.s3 import S3Storage, generate_timestamp
 log = structlog.get_logger()
 
 
-class CatalogWorkflow:
+@DBOS.dbos_class()
+class CatalogWorkflow(DBOSConfiguredInstance):
     """Orchestrates the catalog generation workflow.
 
     Workflow steps:
@@ -34,10 +34,14 @@ class CatalogWorkflow:
         container_pool: ContainerPool,
         s3_storage: S3Storage,
         anthropic_client: anthropic.Anthropic,
+        model_name: str = "claude-sonnet-4-0",
     ):
+        # Must call super().__init__ with a unique config_name for DBOS registration
+        super().__init__(config_name="catalog_workflow")
         self.container_pool = container_pool
         self.s3_storage = s3_storage
         self.anthropic_client = anthropic_client
+        self.model_name = model_name
 
     @DBOS.workflow()
     def run(
@@ -167,6 +171,7 @@ class CatalogWorkflow:
         agent = AgentLoop(
             client=self.anthropic_client,
             runtime=runtime,
+            model=self.model_name,
         )
 
         context = {"tables": tables}
@@ -189,6 +194,7 @@ class CatalogWorkflow:
         agent = AgentLoop(
             client=self.anthropic_client,
             runtime=runtime,
+            model=self.model_name,
         )
 
         context = {
@@ -250,16 +256,10 @@ class CatalogWorkflow:
             return None
 
     def _load_prompt(self, env_var: str) -> str:
-        """Load a prompt from base64-encoded YAML in environment."""
+        """Load a prompt from base64-encoded text in environment."""
         encoded = os.getenv(env_var)
         if not encoded:
             raise ValueError(f"Missing environment variable: {env_var}")
 
-        # Decode base64
-        decoded = base64.b64decode(encoded).decode("utf-8")
-
-        # Parse YAML
-        data = yaml.safe_load(decoded)
-
-        # Return the prompt field
-        return data.get("prompt", "")
+        # Decode base64 - setup-env already extracted the prompt text from YAML
+        return base64.b64decode(encoded).decode("utf-8")

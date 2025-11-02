@@ -2,10 +2,7 @@
 # Setup environment for Cataloger development
 #
 # Usage:
-#   ./scripts/setup-env.sh [--minio]
-#
-# Options:
-#   --minio    Use MinIO template for local S3-compatible storage
+#   ./scripts/setup-env.sh
 
 set -e
 
@@ -41,10 +38,7 @@ if [ ! -f ".env.server" ]; then
     fi
 else
     echo "ℹ️  .env.server already exists, skipping creation"
-    if [ "$USE_MINIO" = true ]; then
-        echo "  To use MinIO, update S3_ENDPOINT_URL and credentials in .env.server"
-        echo "  Or delete .env.server and run: ./scripts/setup-env.sh --minio"
-    fi
+    echo "  To update S3 configuration, edit .env.server directly"
 fi
 
 # Encode prompts
@@ -53,15 +47,15 @@ CATALOGING_PROMPT=$(base64 -i prompts/cataloging_agent.yaml)
 SUMMARY_PROMPT=$(base64 -i prompts/summary_agent.yaml)
 
 # Update .env.server with encoded prompts
-if grep -q "^export CATALOGING_AGENT_PROMPT=" .env.server; then
+if grep -q "^CATALOGING_AGENT_PROMPT=" .env.server; then
     # Update existing
-    sed -i.bak "s|^export CATALOGING_AGENT_PROMPT=.*|export CATALOGING_AGENT_PROMPT=\"${CATALOGING_PROMPT}\"|" .env.server
-    sed -i.bak "s|^export SUMMARY_AGENT_PROMPT=.*|export SUMMARY_AGENT_PROMPT=\"${SUMMARY_PROMPT}\"|" .env.server
+    sed -i.bak "s|^CATALOGING_AGENT_PROMPT=.*|CATALOGING_AGENT_PROMPT=\"${CATALOGING_PROMPT}\"|" .env.server
+    sed -i.bak "s|^SUMMARY_AGENT_PROMPT=.*|SUMMARY_AGENT_PROMPT=\"${SUMMARY_PROMPT}\"|" .env.server
     rm .env.server.bak
 else
     # Append new
-    echo "export CATALOGING_AGENT_PROMPT=\"${CATALOGING_PROMPT}\"" >> .env.server
-    echo "export SUMMARY_AGENT_PROMPT=\"${SUMMARY_PROMPT}\"" >> .env.server
+    echo "CATALOGING_AGENT_PROMPT=\"${CATALOGING_PROMPT}\"" >> .env.server
+    echo "SUMMARY_AGENT_PROMPT=\"${SUMMARY_PROMPT}\"" >> .env.server
 fi
 
 echo "✓ Encoded prompts and updated .env.server"

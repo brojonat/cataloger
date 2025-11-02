@@ -1,0 +1,54 @@
+FROM python:3.13-slim
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    libpq-dev \
+    gcc \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install uv for dependency management
+RUN pip install --no-cache-dir uv
+
+# Create working directory
+WORKDIR /app
+
+# Copy only dependency files first
+COPY pyproject.toml uv.lock ./
+
+# Install only the dependencies (not the package itself yet)
+# This layer will be cached unless pyproject.toml or uv.lock changes
+RUN uv pip install --system \
+    anthropic>=0.39.0 \
+    boto3>=1.35.0 \
+    click>=8.1.0 \
+    dbos>=2.0.0 \
+    docker>=7.1.0 \
+    fastapi>=0.115.0 \
+    "ibis-framework[postgres,duckdb]>=9.5.0" \
+    jinja2>=3.1.6 \
+    polars>=1.13.0 \
+    prometheus-fastapi-instrumentator>=7.0.0 \
+    "python-jose[cryptography]>=3.3.0" \
+    pyyaml>=6.0.0 \
+    requests>=2.32.0 \
+    structlog>=24.4.0 \
+    "uvicorn[standard]>=0.32.0" \
+    pytest>=8.3.0 \
+    pytest-asyncio>=0.24.0 \
+    ruff>=0.7.0
+
+# Now copy the actual application source code
+# Changes to source code won't invalidate the dependency layer above
+COPY src/ ./src/
+COPY server/ ./server/
+
+# Install the local package now that we have the full source
+RUN uv pip install --system --no-deps -e .
+
+# Expose port
+EXPOSE 8000
+
+# Run the FastAPI server through the main module to initialize DBOS
+CMD ["python", "-m", "server.main"]
+

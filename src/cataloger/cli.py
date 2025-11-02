@@ -127,12 +127,12 @@ def setup_env() -> None:
             content = f.read()
 
         content = content.replace(
-            'export CATALOGING_AGENT_PROMPT=""',
-            f'export CATALOGING_AGENT_PROMPT="{cataloging_encoded}"',
+            'CATALOGING_AGENT_PROMPT=""',
+            f'CATALOGING_AGENT_PROMPT="{cataloging_encoded}"',
         )
         content = content.replace(
-            'export SUMMARY_AGENT_PROMPT=""',
-            f'export SUMMARY_AGENT_PROMPT="{summary_encoded}"',
+            'SUMMARY_AGENT_PROMPT=""',
+            f'SUMMARY_AGENT_PROMPT="{summary_encoded}"',
         )
 
         with open(env_file, "w") as f:
@@ -157,13 +157,19 @@ def setup_env() -> None:
 
 @cli.command()
 @click.option("--db-conn", required=True, help="Database connection string")
-@click.option("--tables", required=True, help="Comma-separated list of tables")
+@click.option(
+    "--table",
+    "-t",
+    multiple=True,
+    required=True,
+    help="Table name (repeat for multiple tables)",
+)
 @click.option("--s3-prefix", required=True, help="S3 prefix for output")
 @click.option("--api-url", help="API URL (defaults to env CATALOGER_API_URL)")
 @click.option("--token", help="Auth token (defaults to env CATALOGER_AUTH_TOKEN)")
 def catalog(
     db_conn: str,
-    tables: str,
+    table: tuple[str, ...],
     s3_prefix: str,
     api_url: str | None,
     token: str | None,
@@ -173,7 +179,7 @@ def catalog(
     Example:
         cataloger catalog \\
           --db-conn "postgresql://user:pass@host:5432/db" \\
-          --tables "users,orders,products" \\
+          --table users --table orders --table products \\
           --s3-prefix "customer-123/prod"
     """
     import requests
@@ -193,8 +199,8 @@ def catalog(
         )
         sys.exit(1)
 
-    # Parse tables
-    table_list = [t.strip() for t in tables.split(",")]
+    # Convert tuple to list
+    table_list = list(table)
 
     # Make request
     response = requests.post(
@@ -209,7 +215,7 @@ def catalog(
 
     if response.status_code == 200:
         result = response.json()
-        click.echo(f"✓ Catalog generated successfully")
+        click.echo("✓ Catalog generated successfully")
         click.echo(f"  Timestamp: {result['timestamp']}")
         click.echo(f"  Catalog:   {result['catalog_uri']}")
         click.echo(f"  Summary:   {result['summary_uri']}")

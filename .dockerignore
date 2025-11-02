@@ -1,0 +1,54 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg-info/
+dist/
+build/
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+
+# Documentation (but keep README.md for package metadata)
+*.md
+docs/
+
+# Scripts (not needed in container)
+scripts/
+python_bootstrap_scripts/
+
+# Docker
+Dockerfile*
+docker-compose*.yaml
+.dockerignore
+
+# Development files
+.env*
+Makefile
+
+# Prompts
+prompts/
+
+# Tests
+tests/
+

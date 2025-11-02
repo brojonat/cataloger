@@ -72,7 +72,7 @@ ls -lh data/*.duckdb
 # Generate catalog
 uv run cataloger catalog \
   --db-conn "duckdb:///data/sample_ecommerce.duckdb" \
-  --tables "users,products,orders,order_items" \
+  --table users --table products --table orders --table order_items \
   --s3-prefix "test/ecommerce"
 
 # View in browser
@@ -85,7 +85,7 @@ open http://localhost:8000/database/current?prefix=test/ecommerce
 # Generate catalog
 uv run cataloger catalog \
   --db-conn "duckdb:///data/sample_timeseries.duckdb" \
-  --tables "daily_metrics,system_events" \
+  --table daily_metrics --table system_events \
   --s3-prefix "test/timeseries"
 
 # View in browser

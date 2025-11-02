@@ -17,7 +17,7 @@ Complete guide for running Cataloger locally without AWS credentials using MinIO
 ### 1. Setup Environment for MinIO
 
 ```bash
-./scripts/setup-env.sh --minio
+./scripts/setup-env.sh
 ```
 
 This creates `.env.server` with MinIO configuration:
@@ -233,28 +233,11 @@ for obj in response['Contents']:
     print(obj['Key'])
 ```
 
-## Switching Between MinIO and AWS S3
-
-### Use MinIO (Local)
+### Setting up the envs
 
 ```bash
 # Setup
-./scripts/setup-env.sh --minio
-
-# Edit .env.server - should have:
-# export S3_ENDPOINT_URL=http://localhost:9000
-# export AWS_ACCESS_KEY_ID=minioadmin
-# export AWS_SECRET_ACCESS_KEY=minioadmin
-
-# Start MinIO
-./scripts/start-dev-services.sh
-```
-
-### Use AWS S3 (Production)
-
-```bash
-# Setup
-./scripts/setup-env.sh  # No --minio flag
+./scripts/setup-env.sh
 
 # Edit .env.server - remove or comment out:
 # export S3_ENDPOINT_URL=http://localhost:9000
@@ -424,7 +407,7 @@ jobs:
       - uses: actions/checkout@v3
 
       - name: Setup environment
-        run: ./scripts/setup-env.sh --minio
+        run: ./scripts/setup-env.sh
 
       - name: Create bucket
         run: |
@@ -449,7 +432,7 @@ MinIO provides a complete local S3 experience:
 
 **Quick Start**:
 ```bash
-./scripts/setup-env.sh --minio
+./scripts/setup-env.sh
 ./scripts/start-dev-services.sh
 ./scripts/run-server.sh
 ./scripts/catalog-ecommerce.sh

@@ -31,7 +31,7 @@ class AgentLoop:
         self,
         client: anthropic.Anthropic,
         runtime: ContainerRuntime,
-        model: str = "claude-3-5-sonnet-20241022",
+        model: str = "claude-sonnet-4-0",
         max_tokens: int = 100_000,
         temperature: float = 0.0,
     ):
@@ -80,7 +80,7 @@ class AgentLoop:
                 # Call Claude API
                 response = self.client.messages.create(
                     model=self.model,
-                    max_tokens=4096,  # Per-request limit
+                    max_tokens=8192,  # Per-request limit (increased for HTML generation)
                     temperature=self.temperature,
                     system=system_prompt,
                     messages=messages,
@@ -143,9 +143,39 @@ class AgentLoop:
                     messages.append({"role": "user", "content": tool_results})
 
                 elif response.stop_reason == "max_tokens":
-                    # Hit per-request token limit, continue
+                    # Hit per-request token limit
                     log.warning("agent.loop.max_tokens_per_request", iteration=iteration)
-                    continue
+
+                    # Check if there are any tool calls in the truncated response
+                    # (tool calls can be complete even if text content was cut off)
+                    tool_results = []
+                    has_tool_calls = False
+
+                    for block in response.content:
+                        if block.type == "tool_use":
+                            has_tool_calls = True
+                            try:
+                                result = self._handle_tool_call(block)
+                                tool_results.append(
+                                    {
+                                        "type": "tool_result",
+                                        "tool_use_id": block.id,
+                                        "content": result,
+                                    }
+                                )
+                            except AgentTerminated as e:
+                                # Agent submitted HTML - return it
+                                log.info(
+                                    "agent.loop.complete",
+                                    iterations=iteration,
+                                    tokens=self._token_usage,
+                                )
+                                return e.html_content
+
+                    # If there were tool calls, add results to conversation
+                    if has_tool_calls:
+                        messages.append({"role": "user", "content": tool_results})
+                    # Otherwise just continue (pure text was truncated)
 
                 else:
                     raise RuntimeError(f"Unexpected stop reason: {response.stop_reason}")
@@ -179,6 +209,9 @@ class AgentLoop:
         log.info("agent.tool_call", tool=tool_name, input_len=len(str(tool_input)))
 
         if tool_name == "execute_python":
+            # Check if code field exists (might be truncated if max_tokens hit)
+            if "code" not in tool_input:
+                return "Error: execute_python call was truncated. Please retry with complete code."
             code = tool_input["code"]
             try:
                 output = self.runtime.execute(code)
@@ -190,6 +223,9 @@ class AgentLoop:
                 return f"Execution error:\n{error_msg}"
 
         elif tool_name == "submit_html":
+            # Check if content field exists (might be truncated if max_tokens hit)
+            if "content" not in tool_input:
+                return "Error: submit_html call was truncated. Please try again with complete HTML content."
             content = tool_input["content"]
             log.info("agent.submit_html", content_len=len(content))
             raise AgentTerminated(content)

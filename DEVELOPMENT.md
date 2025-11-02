@@ -76,7 +76,7 @@ export CATALOGER_AUTH_TOKEN=<your-token>
 
 uv run cataloger catalog \
   --db-conn "postgresql://user:pass@host:5432/db" \
-  --tables "users,orders,products" \
+  --table users --table orders --table products \
   --s3-prefix "customer-123/prod"
 ```
 

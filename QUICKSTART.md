@@ -21,7 +21,7 @@ uv pip install -e ".[dev]"
 
 ```bash
 # For MinIO (local S3, no AWS needed - recommended!)
-uv run cataloger admin setup-env --minio
+uv run cataloger admin setup-env
 
 # OR for AWS S3
 uv run cataloger admin setup-env
@@ -116,7 +116,7 @@ Generate catalog:
 ```bash
 uv run cataloger catalog \
   --db-conn "duckdb:///data/sample_ecommerce.duckdb" \
-  --tables "users,products,orders" \
+  --table users --table products --table orders \
   --s3-prefix "test/ecommerce"
 ```
 
@@ -188,7 +188,7 @@ docker exec -it <container-id> psql -U postgres -c "
 # Catalog it
 uv run cataloger catalog \
   --db-conn "postgresql://postgres:postgres@localhost:5432/postgres" \
-  --tables "users" \
+  --table users \
   --s3-prefix "demo/users"
 ```
 

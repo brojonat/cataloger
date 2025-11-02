@@ -74,6 +74,7 @@ class ContainerRuntime:
             os.environ["AWS_SECRET_ACCESS_KEY"] = {self.s3_config.get("aws_secret_access_key", "")!r}
             os.environ["AWS_DEFAULT_REGION"] = {self.s3_config.get("region", "us-east-1")!r}
             os.environ["S3_BUCKET"] = {self.s3_config.get("bucket", "")!r}
+            os.environ["S3_ENDPOINT_URL"] = {self.s3_config.get("endpoint_url", "")!r}
 
             # Global namespace for persistent state
             _globals = {{"__name__": "__main__"}}

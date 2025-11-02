@@ -45,7 +45,7 @@ if docker ps | grep -q cataloger-minio; then
     echo "   Bucket: cataloger-dev"
     echo
     echo "💡 Configure your .env.server to use MinIO:"
-    echo "   uv run cataloger admin setup-env --minio"
+    echo "   uv run cataloger admin setup-env"
     echo
     echo "   Then edit .env.server and set your LLM_API_KEY"
 else

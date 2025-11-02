@@ -3,9 +3,12 @@ from contextlib import contextmanager
 from typing import Any, Iterator
 
 import docker
+import structlog
 from docker.models.containers import Container
 
 from .runtime import ContainerRuntime
+
+logger = structlog.get_logger()
 
 
 class ContainerPool:
@@ -52,9 +55,41 @@ class ContainerPool:
         volumes = {}
 
         # Mount data directory if it exists (for DuckDB files)
-        data_dir = os.path.abspath("data")
-        if os.path.exists(data_dir):
+        # When running in Docker, HOST_DATA_DIR should point to the host path (e.g., ./data)
+        # Otherwise use local data directory
+        host_data_dir = os.getenv("HOST_DATA_DIR")
+        if host_data_dir:
+            # Running in Docker - use the host path that was mounted to server
+            data_dir = host_data_dir
+        elif os.path.exists("/data"):
+            # Fallback: server has /data mounted, use it
+            data_dir = "/data"
+        else:
+            # Local development - use relative data directory
+            data_dir = os.path.abspath("data")
+
+        if os.path.exists("/data") or host_data_dir:  # Check if data should exist
             volumes[data_dir] = {"bind": "/data", "mode": "ro"}  # Read-only
+            logger.info("container.mount_data", host_data_dir=host_data_dir, data_dir=data_dir, mount_target="/data")
+        else:
+            logger.warning("container.data_dir_not_found", data_dir=data_dir)
+
+        # Determine network - use cataloger network if available, otherwise bridge
+        network_mode = os.getenv("DOCKER_NETWORK", "cataloger_cataloger-dev")
+        logger.info("container.network", network_mode=network_mode)
+
+        # Prepare environment variables for agent container
+        environment = {
+            "S3_ENDPOINT_URL": os.getenv("S3_ENDPOINT_URL", ""),
+            "AWS_ACCESS_KEY_ID": os.getenv("AWS_ACCESS_KEY_ID", ""),
+            "AWS_SECRET_ACCESS_KEY": os.getenv("AWS_SECRET_ACCESS_KEY", ""),
+            "AWS_DEFAULT_REGION": os.getenv("S3_REGION", "us-east-1"),
+            "S3_BUCKET": os.getenv("S3_BUCKET", ""),
+        }
+        logger.info("container.environment",
+                   s3_endpoint=environment['S3_ENDPOINT_URL'],
+                   s3_bucket=environment['S3_BUCKET'],
+                   has_credentials=bool(environment['AWS_ACCESS_KEY_ID']))
 
         container = self.client.containers.run(
             self.image_name,
@@ -62,9 +97,19 @@ class ContainerPool:
             remove=False,  # We manage cleanup
             mem_limit="1g",
             cpu_quota=100000,  # 1 CPU
-            network_mode="bridge",
+            network_mode=network_mode,
             volumes=volumes,
+            environment=environment,
         )
+
+        # Verify it started
+        container.reload()
+        logger.info(f"Created container {container.short_id} with status: {container.status}")
+
+        if container.status != "running":
+            logger.error(f"Container {container.short_id} failed to start. Logs: {container.logs().decode()}")
+            raise RuntimeError(f"Container failed to start with status: {container.status}")
+
         return container
 
     def acquire(
@@ -84,6 +129,13 @@ class ContainerPool:
         # Try to get an available container
         if self._available:
             container = self._available.pop()
+            # Verify container is still running, restart if needed
+            container.reload()
+            if container.status != "running":
+                logger.warning(
+                    f"Container {container.short_id} is not running, restarting..."
+                )
+                container.restart()
         # Or create a new one if under pool size
         elif len(self._in_use) < self.pool_size:
             container = self._create_container()

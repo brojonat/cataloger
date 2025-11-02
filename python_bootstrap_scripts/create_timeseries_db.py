@@ -17,6 +17,12 @@ def create_database(db_path: str = "data/sample_timeseries.duckdb"):
 
     Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
+    # Delete existing database if it exists
+    db_file = Path(db_path)
+    if db_file.exists():
+        print(f"Removing existing database at: {db_path}")
+        db_file.unlink()
+
     print(f"Creating time-series database at: {db_path}")
     conn = duckdb.connect(db_path)
 

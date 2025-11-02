@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 from contextlib import asynccontextmanager
@@ -6,6 +7,7 @@ from typing import Dict
 
 import anthropic
 import structlog
+from dbos import DBOS, DBOSConfig
 from fastapi import Depends, FastAPI, HTTPException, Request, status
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -21,13 +23,22 @@ from cataloger.storage.s3 import S3Storage
 from cataloger.workflow.catalog import CatalogWorkflow
 
 # -------------------------
+# DBOS Configuration
+# -------------------------
+config: DBOSConfig = {
+    "name": "cataloger",
+    "system_database_url": os.getenv("DBOS_SYSTEM_DATABASE_URL"),
+}
+DBOS(config=config)
+
+# -------------------------
 # Logging configuration
 # -------------------------
 
 
 def configure_logging() -> None:
     log_level_name = os.getenv("LOG_LEVEL", "INFO").upper()
-    log_level = getattr(structlog, log_level_name, structlog.INFO)
+    log_level = getattr(logging, log_level_name, logging.INFO)
     json_logs = os.getenv("LOG_JSON", "false").lower() == "true"
     service_name = os.getenv("SERVICE_NAME", "cataloger")
 
@@ -94,11 +105,11 @@ anthropic_client: anthropic.Anthropic | None = None
 # -------------------------
 
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
+def initialize_services():
+    """Initialize all services. Must be called before DBOS.launch()."""
     global container_pool, s3_storage, catalog_workflow, anthropic_client
 
-    log.info("service.startup")
+    log.info("service.initialize")
 
     # Initialize LLM client (currently using Anthropic)
     llm_api_key = os.getenv("LLM_API_KEY")
@@ -107,16 +118,25 @@ async def lifespan(app: FastAPI):
         sys.exit(1)
     anthropic_client = anthropic.Anthropic(api_key=llm_api_key)
 
+    # Get model name (defaults to claude-sonnet-4-0)
+    model_name = os.getenv("MODEL_NAME", "claude-sonnet-4-0")
+
     # Initialize S3 storage
     s3_bucket = os.getenv("S3_BUCKET")
     s3_region = os.getenv("S3_REGION", "us-east-1")
     s3_endpoint_url = os.getenv("S3_ENDPOINT_URL")  # For MinIO/LocalStack
+    s3_access_key = os.getenv("AWS_ACCESS_KEY_ID")
+    s3_secret_key = os.getenv("AWS_SECRET_ACCESS_KEY")
+
     if not s3_bucket:
         log.error("Missing S3_BUCKET environment variable")
         sys.exit(1)
+
     s3_storage = S3Storage(
         bucket=s3_bucket,
         region=s3_region,
+        access_key_id=s3_access_key,
+        secret_access_key=s3_secret_key,
         endpoint_url=s3_endpoint_url,
     )
 
@@ -125,13 +145,20 @@ async def lifespan(app: FastAPI):
     pool_size = int(os.getenv("CONTAINER_POOL_SIZE", "5"))
     container_pool = ContainerPool(image_name=container_image, pool_size=pool_size)
 
-    # Initialize catalog workflow
+    # Initialize catalog workflow (must be before DBOS.launch())
     catalog_workflow = CatalogWorkflow(
         container_pool=container_pool,
         s3_storage=s3_storage,
         anthropic_client=anthropic_client,
+        model_name=model_name,
     )
 
+    log.info("service.initialized", model=model_name)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    log.info("service.startup")
     try:
         yield
     finally:
@@ -139,6 +166,9 @@ async def lifespan(app: FastAPI):
         if container_pool:
             container_pool.cleanup()
 
+
+# Initialize services before creating FastAPI app (must happen before DBOS auto-launches)
+initialize_services()
 
 app = FastAPI(title=os.getenv("SERVICE_NAME", "cataloger"), lifespan=lifespan)
 
@@ -212,10 +242,7 @@ def whoami(claims: Dict = Depends(require_claims)):
 @app.get("/", response_class=HTMLResponse, tags=["ui"])
 async def root(request: Request):
     """Home page with navigation."""
-    return templates.TemplateResponse(
-        "index.html",
-        {"request": request}
-    )
+    return templates.TemplateResponse("index.html", {"request": request})
 
 
 @app.get("/database/current", response_class=HTMLResponse, tags=["ui"])
@@ -229,7 +256,7 @@ async def database_current(request: Request, prefix: str):
     if not timestamps:
         return templates.TemplateResponse(
             "error.html",
-            {"request": request, "message": f"No catalogs found for prefix: {prefix}"}
+            {"request": request, "message": f"No catalogs found for prefix: {prefix}"},
         )
 
     latest_timestamp = timestamps[0]
@@ -243,8 +270,8 @@ async def database_current(request: Request, prefix: str):
             "request": request,
             "prefix": prefix,
             "timestamp": latest_timestamp,
-            "catalogs": catalogs
-        }
+            "catalogs": catalogs,
+        },
     )
 
 
@@ -259,21 +286,19 @@ async def database_timelapse(request: Request, prefix: str):
     if not timestamps:
         return templates.TemplateResponse(
             "error.html",
-            {"request": request, "message": f"No catalogs found for prefix: {prefix}"}
+            {"request": request, "message": f"No catalogs found for prefix: {prefix}"},
         )
 
     return templates.TemplateResponse(
         "timelapse.html",
-        {
-            "request": request,
-            "prefix": prefix,
-            "timestamps": timestamps
-        }
+        {"request": request, "prefix": prefix, "timestamps": timestamps},
     )
 
 
 @app.get("/api/catalog/content", tags=["api"])
-async def get_catalog_content(prefix: str, timestamp: str, filename: str, request: Request):
+async def get_catalog_content(
+    prefix: str, timestamp: str, filename: str, request: Request
+):
     """Fetch catalog HTML content from S3."""
     if not s3_storage:
         raise HTTPException(status_code=503, detail="S3 storage not initialized")
@@ -283,11 +308,7 @@ async def get_catalog_content(prefix: str, timestamp: str, filename: str, reques
         # Return HTML fragment
         return templates.TemplateResponse(
             "catalog_content_fragment.html",
-            {
-                "request": request,
-                "content": content,
-                "filename": filename
-            }
+            {"request": request, "content": content, "filename": filename},
         )
     except Exception as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -308,16 +329,14 @@ async def list_catalog_files(prefix: str, timestamp: str, request: Request):
             "request": request,
             "prefix": prefix,
             "timestamp": timestamp,
-            "catalogs": catalogs
-        }
+            "catalogs": catalogs,
+        },
     )
 
 
 @app.get("/catalog/context", response_class=HTMLResponse, tags=["catalog"])
 async def get_catalog_context(
-    prefix: str,
-    timestamp: str | None = None,
-    strip_tags: bool = False
+    prefix: str, timestamp: str | None = None, strip_tags: bool = False
 ):
     """Generate context summary HTML from previous catalog state.
 
@@ -350,8 +369,7 @@ async def get_catalog_context(
     except Exception as e:
         log.error("catalog.context.error", error=str(e), exc_info=True)
         raise HTTPException(
-            status_code=500,
-            detail=f"Failed to generate context summary: {str(e)}"
+            status_code=500, detail=f"Failed to generate context summary: {str(e)}"
         )
 
 
@@ -454,6 +472,10 @@ def create_catalog(
 if __name__ == "__main__":
     import uvicorn
 
+    # Launch DBOS before starting the server
+    # Note: initialize_services() is called automatically via the lifespan event
+    DBOS.launch()
+
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
-    uvicorn.run("main:app", host=host, port=port, reload=False)
+    uvicorn.run(app, host=host, port=port, reload=False)

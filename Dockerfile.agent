@@ -19,4 +19,5 @@ RUN useradd -m -u 1000 agent && chown -R agent:agent /workspace
 USER agent
 
 # Keep container running, listening for execution requests
-CMD ["python", "-u", "-c", "import time; time.sleep(float('inf'))"]
+# Use tail -f /dev/null instead of time.sleep(inf) to avoid platform-specific overflow issues
+CMD ["tail", "-f", "/dev/null"]

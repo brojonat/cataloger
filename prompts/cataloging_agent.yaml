@@ -7,6 +7,12 @@ prompt: |
 
   IMPORTANT: This is a PERSISTENT Python session. Variables, imports, and functions you define will remain available across multiple execute_python() calls. Use this to build up your analysis incrementally.
 
+  Connecting to the database:
+  The DB_CONNECTION_STRING environment variable contains a connection URI. For DuckDB connections:
+  - The URI will be like: duckdb:///path/to/file.duckdb
+  - Extract the path after "duckdb://" and use it with ibis: ibis.duckdb.connect("/path/to/file.duckdb", read_only=True)
+  - Example: If DB_CONNECTION_STRING="duckdb:///data/sample.duckdb", use ibis.duckdb.connect("/data/sample.duckdb", read_only=True)
+
   Feedback Loop:
   If the context includes a "previous_context" field, this is a comprehensive summary of the previous catalog run, including:
   - User comments and feedback on the previous catalog
@@ -21,36 +27,38 @@ prompt: |
   - Are there better queries or approaches based on what you learned?
   - Adapt and evolve your approach based on the full context.
 
-  Your workflow:
+  Your workflow - BE FAST AND CONCISE:
   1. Connect to the database using ibis
   2. For each table provided in the context:
-     - Query table schema (columns, types, nullability)
-     - Get row counts
-     - For each column:
-       * Get null counts and percentages
-       * For categorical/string columns: Get top 10 most frequent values with counts
-       * For numeric columns: Get min, max, mean, median, std dev
-       * For temporal columns: Get min, max, and date range
-  3. Generate HTML report with:
-     - Summary section with database metadata
-     - One section per table with:
-       * Schema table (column name, type, nullable, null %)
-       * Summary statistics for each column
-       * Top values for categorical columns (limit to 20 rows)
-       * Keep all tables readable - truncate if necessary
+     - Use ibis built-in methods: .schema(), .count(), .head(), .describe()
+     - Get row count with .count()
+     - Get column info with .schema() - just show columns, types, nullability
+     - For quick stats, use .describe() on numeric columns (gives min/max/mean/etc in one call)
+     - For categorical columns: show top 5 values only (not 10!)
+     - DO NOT iterate over every column individually - use bulk operations
+     - Keep analysis minimal - this is a quick summary, not deep exploration
+  3. Generate COMPACT HTML report with:
+     - Brief summary: table count, total rows
+     - One SMALL section per table with:
+       * Schema table (3 columns: name, type, nullable)
+       * Basic stats table (only for numeric columns - use .describe() output)
+       * Top 5 values for 1-2 key categorical columns (not all columns!)
+     - DO NOT generate verbose descriptions or explanations
+     - DO NOT include every single column's statistics
 
-  Output requirements:
+  Output requirements - KEEP IT SMALL:
   - Self-contained HTML with inline CSS
-  - Clean, readable tables
-  - Use monospace fonts for SQL/code
-  - Include a timestamp
-  - Keep tables to ~20 rows maximum
-  - DO NOT include raw SQL in the output unless specifically useful
+  - CONCISE tables - maximum 10 rows per stats table
+  - Maximum 5 top values for categorical columns
+  - Only show stats for the most important columns
+  - Include timestamp
+  - DO NOT include raw SQL or code in the output
+  - MINIMIZE HTML size - use compact formatting
 
   Style guidelines:
-  - Use a simple, professional design
-  - Tables should have borders and alternating row colors
+  - Simple, minimal design
+  - Small tables with borders
   - Use semantic HTML5 tags
-  - Mobile-friendly responsive design
+  - Mobile-friendly
 
   When you're done exploring and have generated the HTML, call submit_html(content=html).

@@ -19,11 +19,12 @@ uv pip install -e ".[dev]"
 ### 2. Setup Environment
 
 ```bash
-uv run cataloger admin setup-env --minio
+uv run cataloger admin setup-env
 ```
 
 This:
-- ✅ Creates `.env.server` with MinIO configuration
+
+- ✅ Creates `.env.server` with S3 configuration template
 - ✅ Encodes agent prompts automatically
 - ✅ Ready for deployment
 
@@ -36,11 +37,13 @@ vim .env.server
 ```
 
 Change:
+
 ```bash
 export LLM_API_KEY=sk-ant-your-key-here
 ```
 
 To your actual key:
+
 ```bash
 export LLM_API_KEY=sk-ant-api03-abc123...
 ```
@@ -75,7 +78,7 @@ export CATALOGER_AUTH_TOKEN=$(uv run cataloger generate-token change-me-to-a-ran
 # Generate catalog
 uv run cataloger catalog \
   --db-conn "duckdb:////data/sample_ecommerce.duckdb" \
-  --tables "users,products,orders" \
+  --table users --table products --table orders \
   --s3-prefix "test/ecommerce"
 ```
 
@@ -87,6 +90,7 @@ uv run cataloger catalog \
 ## That's It!
 
 You now have:
+
 - ✅ Cataloger running locally
 - ✅ MinIO providing S3-compatible storage
 - ✅ Sample databases to catalog
@@ -105,7 +109,7 @@ export CATALOGER_AUTH_TOKEN=$(uv run cataloger generate-token your-secret)
 
 uv run cataloger catalog \
   --db-conn "duckdb:////data/sample_ecommerce.duckdb" \
-  --tables "users,orders" \
+  --table users --table orders \
   --s3-prefix "test/ecommerce"
 
 # View at: http://localhost:8000/database/current?prefix=test/ecommerce
@@ -118,7 +122,7 @@ uv run cataloger catalog \
 vim prompts/cataloging_agent.yaml
 
 # 2. Re-encode (idempotent!)
-uv run cataloger admin setup-env --minio
+uv run cataloger admin setup-env
 
 # 3. Restart server
 # Ctrl+C in Terminal 2, then:
@@ -158,6 +162,7 @@ Edit `.env.server` and set your API key.
 ### "S3 bucket not found"
 
 Make sure MinIO is running:
+
 ```bash
 ./scripts/start-dev-services.sh
 ```
@@ -165,6 +170,7 @@ Make sure MinIO is running:
 ### "Container image not found"
 
 Build the container:
+
 ```bash
 ./scripts/build-container.sh
 ```
@@ -172,6 +178,7 @@ Build the container:
 ### "Database not found"
 
 Create sample databases:
+
 ```bash
 ./scripts/bootstrap-db.sh
 ```
@@ -181,7 +188,7 @@ Create sample databases:
 ```bash
 # Setup (one time)
 uv pip install -e ".[dev]"
-uv run cataloger admin setup-env --minio
+uv run cataloger admin setup-env
 # Edit .env.server
 
 # Start services
@@ -192,10 +199,10 @@ uv run cataloger admin setup-env --minio
 
 # Generate catalogs
 export CATALOGER_AUTH_TOKEN=$(uv run cataloger generate-token secret)
-uv run cataloger catalog --db-conn ... --tables ... --s3-prefix ...
+uv run cataloger catalog --db-conn ... --table TABLE1 --table TABLE2 --s3-prefix ...
 
 # Update prompts (idempotent!)
-uv run cataloger admin setup-env --minio
+uv run cataloger admin setup-env
 ```
 
 That's all you need to know to get started!

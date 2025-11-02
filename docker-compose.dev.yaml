@@ -1,13 +1,45 @@
-version: '3.8'
+version: "3.8"
 
 services:
+  # FastAPI Server
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile.server
+    container_name: cataloger-server
+    ports:
+      - "8000:8000"
+    environment:
+      - S3_BUCKET
+      - S3_REGION
+      - S3_ENDPOINT_URL
+      - AWS_ACCESS_KEY_ID
+      - AWS_SECRET_ACCESS_KEY
+      - LLM_API_KEY
+      - MODEL_NAME
+      - AUTH_SECRET
+      - DBOS_SYSTEM_DATABASE_URL
+      - CATALOGING_AGENT_PROMPT
+      - SUMMARY_AGENT_PROMPT
+      - HOST_DATA_DIR
+    volumes:
+      - ./src:/app/src
+      - ./server:/app/server
+      - ./data:/data:ro  # Mount data directory for DuckDB files
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      minio-init:
+        condition: service_completed_successfully
+    networks:
+      - cataloger-dev
+
   # MinIO - S3-compatible object storage
   minio:
     image: minio/minio:latest
     container_name: cataloger-minio
     ports:
-      - "9000:9000"  # API
-      - "9001:9001"  # Console UI
+      - "9000:9000" # API
+      - "9001:9001" # Console UI
     environment:
       MINIO_ROOT_USER: minioadmin
       MINIO_ROOT_PASSWORD: minioadmin
@@ -29,12 +61,14 @@ services:
     depends_on:
       minio:
         condition: service_healthy
+    environment:
+      - S3_BUCKET
     entrypoint: >
       /bin/sh -c "
       mc alias set local http://minio:9000 minioadmin minioadmin;
-      mc mb local/cataloger-dev || true;
-      mc anonymous set download local/cataloger-dev || true;
-      echo 'MinIO bucket cataloger-dev created and configured';
+      mc mb local/$${S3_BUCKET} || true;
+      mc anonymous set download local/$${S3_BUCKET} || true;
+      echo 'MinIO bucket $${S3_BUCKET} created and configured';
       "
     networks:
       - cataloger-dev

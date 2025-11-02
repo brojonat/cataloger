@@ -12,8 +12,8 @@ uv pip install -e ".[dev]"
 
 ```bash
 # 1. Setup environment (idempotent - safe to run multiple times)
-uv run cataloger admin setup-env --minio
-# Edit .env.server to set LLM_API_KEY
+uv run cataloger admin setup-env
+# Edit .env.server to set LLM_API_KEY and S3 credentials
 
 # 2. Generate a test token
 uv run cataloger generate-token your-secret
@@ -21,7 +21,7 @@ uv run cataloger generate-token your-secret
 # 3. Trigger catalog generation
 uv run cataloger catalog \
   --db-conn "duckdb:////data/sample_ecommerce.duckdb" \
-  --tables "users,products,orders" \
+  --table users --table products --table orders \
   --s3-prefix "test/ecommerce"
 ```
 
@@ -38,20 +38,21 @@ Trigger a catalog generation by calling the API server.
 ```bash
 cataloger catalog \
   --db-conn <connection-string> \
-  --tables <comma-separated-tables> \
+  --table <table-name> [--table <table-name> ...] \
   --s3-prefix <prefix> \
   [--api-url <url>] \
   [--token <jwt-token>]
 ```
 
 **Options:**
+
 - `--db-conn` (required): Database connection string
   - Examples:
     - `postgresql://user:pass@host:5432/db`
     - `duckdb:////data/mydb.duckdb`
     - `mysql://user:pass@host:3306/db`
-- `--tables` (required): Comma-separated list of table names
-  - Example: `users,orders,products`
+- `--table`, `-t` (required, multiple): Table name to catalog (repeat for multiple tables)
+  - Example: `--table users --table orders --table products`
 - `--s3-prefix` (required): S3 prefix for output
   - Example: `customer-123/prod`
 - `--api-url` (optional): API server URL
@@ -62,17 +63,19 @@ cataloger catalog \
   - Generate with: `cataloger generate-token`
 
 **Example:**
+
 ```bash
 export CATALOGER_API_URL=http://localhost:8000
 export CATALOGER_AUTH_TOKEN=$(cataloger generate-token your-secret)
 
 cataloger catalog \
   --db-conn "duckdb:////data/sample_ecommerce.duckdb" \
-  --tables "users,products,orders" \
+  --table users --table products --table orders \
   --s3-prefix "test/ecommerce"
 ```
 
 **Output:**
+
 ```
 ✓ Catalog generated successfully
   Timestamp: 2024-01-15T10:00:00Z
@@ -89,17 +92,19 @@ cataloger generate-token [secret]
 ```
 
 **Arguments:**
+
 - `secret` (optional): JWT secret key
   - Default: `$AUTH_SECRET` or `change-me`
 
 **Example:**
+
 ```bash
 # Generate token
 TOKEN=$(cataloger generate-token my-secret)
 
 # Use token
 export CATALOGER_AUTH_TOKEN=$TOKEN
-cataloger catalog --db-conn ... --tables ... --s3-prefix ...
+cataloger catalog --db-conn ... --table TABLE1 --table TABLE2 --s3-prefix ...
 ```
 
 **Security Note:** This is for development only. In production, use proper identity providers.
@@ -115,26 +120,22 @@ Setup environment configuration for Cataloger. Creates/updates `.env.server` fil
 **Idempotent**: Safe to run multiple times. Always updates prompts to latest version.
 
 ```bash
-cataloger admin setup-env [--minio]
+cataloger admin setup-env
 ```
 
-**Options:**
-- `--minio`: Configure for MinIO (local S3-compatible storage)
-
 **Examples:**
-```bash
-# Setup for AWS S3
-cataloger admin setup-env
 
-# Setup for MinIO (local development - recommended!)
-cataloger admin setup-env --minio
+```bash
+# Setup environment
+cataloger admin setup-env
 
 # Re-run after editing prompts (automatically updates them)
 vim prompts/cataloging_agent.yaml
-cataloger admin setup-env --minio
+cataloger admin setup-env
 ```
 
 **What it does:**
+
 1. Checks that prompt files exist in `prompts/`
 2. **If .env.server doesn't exist**: Copies template and encodes prompts
 3. **If .env.server exists**: Updates prompt lines, preserves everything else
@@ -143,6 +144,7 @@ cataloger admin setup-env --minio
 **This is your one-stop setup command!**
 
 **Output:**
+
 ```
 ✓ Created .env.server from .env.server.minio
 ✓ Encoding prompts...
@@ -159,13 +161,14 @@ Next steps:
   4. Start server: ./scripts/run-server.sh
 ```
 
-
 Update encoded prompts in existing `.env.server` file. Use this after editing prompt YAML files.
 
 ```bash
+
 ```
 
 **Example:**
+
 ```bash
 # Edit prompts
 vim prompts/cataloging_agent.yaml
@@ -177,6 +180,7 @@ vim prompts/cataloging_agent.yaml
 ```
 
 **What it does:**
+
 1. Checks that `.env.server` exists
 2. Reads prompt YAML files
 3. Encodes to base64
@@ -192,14 +196,17 @@ cataloger admin encode-prompt <prompt-file>
 ```
 
 **Arguments:**
+
 - `prompt-file`: Path to YAML prompt file
 
 **Example:**
+
 ```bash
 cataloger admin encode-prompt prompts/cataloging_agent.yaml
 ```
 
 **Output:**
+
 ```
 cHJvbXB0OiB8CiAgWW91IGFyZSBhIGRhdGFiYXNlIGNhdGFsb2dpbmcgYWdlbnQuLi4=
 ```
@@ -217,16 +224,19 @@ cHJvbXB0OiB8CiAgWW91IGFyZSBhIGRhdGFiYXNlIGNhdGFsb2dpbmcgYWdlbnQuLi4=
 ### Optional
 
 **S3 Configuration:**
+
 - `S3_REGION`: AWS region (default: `us-east-1`)
 - `S3_ENDPOINT_URL`: Custom endpoint for MinIO/LocalStack
 - `AWS_ACCESS_KEY_ID`: AWS access key
 - `AWS_SECRET_ACCESS_KEY`: AWS secret key
 
 **Container Configuration:**
+
 - `CONTAINER_IMAGE`: Docker image name (default: `cataloger-agent:latest`)
 - `CONTAINER_POOL_SIZE`: Number of containers in pool (default: `5`)
 
 **Server Configuration:**
+
 - `SERVICE_NAME`: Service name for logging (default: `cataloger`)
 - `HOST`: Server host (default: `0.0.0.0`)
 - `PORT`: Server port (default: `8000`)
@@ -234,6 +244,7 @@ cHJvbXB0OiB8CiAgWW91IGFyZSBhIGRhdGFiYXNlIGNhdGFsb2dpbmcgYWdlbnQuLi4=
 - `LOG_JSON`: JSON logging (default: `false`)
 
 **API Client Configuration:**
+
 - `CATALOGER_API_URL`: API server URL (for `catalog` command)
 - `CATALOGER_AUTH_TOKEN`: JWT token (for `catalog` command)
 
@@ -245,8 +256,8 @@ cHJvbXB0OiB8CiAgWW91IGFyZSBhIGRhdGFiYXNlIGNhdGFsb2dpbmcgYWdlbnQuLi4=
 # 1. Install
 uv pip install -e ".[dev]"
 
-# 2. Configure for MinIO
-uv run cataloger admin setup-env --minio
+# 2. Configure environment
+uv run cataloger admin setup-env
 
 # 3. Edit config
 vim .env.server
@@ -273,7 +284,7 @@ export CATALOGER_API_URL=http://localhost:8000
 # Run catalog
 cataloger catalog \
   --db-conn "duckdb:////data/sample_ecommerce.duckdb" \
-  --tables "users,orders" \
+  --table users --table orders \
   --s3-prefix "test/ecommerce"
 
 # View results
@@ -295,14 +306,9 @@ vim prompts/cataloging_agent.yaml
 ### Switching Storage
 
 ```bash
-# Switch to AWS S3
+# Recreate .env.server with fresh template
 cataloger admin setup-env --force
-# Edit .env.server - set AWS credentials
-
-# Switch to MinIO
-cataloger admin setup-env --minio --force
-# Start MinIO
-./scripts/start-dev-services.sh
+# Edit .env.server - set your credentials and endpoints
 ```
 
 ## Troubleshooting
@@ -321,12 +327,13 @@ cataloger --help
 ### Missing .env.server
 
 ```bash
-cataloger admin setup-env --minio
+cataloger admin setup-env
 ```
 
 ### Outdated prompts
 
 ```bash
+cataloger admin setup-env
 ```
 
 ### Connection refused
@@ -367,14 +374,17 @@ cataloger admin encode-prompt --help
 ## Summary
 
 **Main commands:**
+
 - `cataloger catalog` - Generate database catalog
 - `cataloger generate-token` - Create JWT token
 
 **Admin commands:**
+
 - `cataloger admin setup-env` - Setup/update environment (idempotent!)
 - `cataloger admin encode-prompt` - Encode single prompt file (debug)
 
 **Workflow:**
+
 1. `admin setup-env` - Setup environment
 2. Edit `.env.server` - Add LLM_API_KEY
 3. `generate-token` - Get auth token

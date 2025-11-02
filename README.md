@@ -31,8 +31,8 @@ human-readable reports that serve as temporal records of your data's state.
 
 ```bash
 # 1. Setup (one command!)
-uv run cataloger admin setup-env --minio
-# Edit .env.server and add your LLM_API_KEY
+uv run cataloger admin setup-env
+# Edit .env.server and add your LLM_API_KEY and S3 credentials
 
 # 2. Start services
 ./scripts/start-dev-services.sh  # MinIO (local S3)
@@ -44,7 +44,7 @@ uv run cataloger admin setup-env --minio
 export CATALOGER_AUTH_TOKEN=$(uv run cataloger generate-token your-secret)
 uv run cataloger catalog \
   --db-conn "duckdb:////data/sample_ecommerce.duckdb" \
-  --tables "users,orders" \
+  --table users --table orders \
   --s3-prefix "test/ecommerce"
 
 # 4. View at: http://localhost:8000

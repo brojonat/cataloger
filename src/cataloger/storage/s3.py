@@ -37,13 +37,17 @@ class S3Storage:
         self.region = region
         self.endpoint_url = endpoint_url
 
+        # Store credentials (fallback to environment if not provided)
+        self.access_key_id = access_key_id or os.getenv("AWS_ACCESS_KEY_ID")
+        self.secret_access_key = secret_access_key or os.getenv("AWS_SECRET_ACCESS_KEY")
+
         # Initialize boto3 client
         session_kwargs: dict[str, Any] = {"region_name": region}
-        if access_key_id and secret_access_key:
+        if self.access_key_id and self.secret_access_key:
             session_kwargs.update(
                 {
-                    "aws_access_key_id": access_key_id,
-                    "aws_secret_access_key": secret_access_key,
+                    "aws_access_key_id": self.access_key_id,
+                    "aws_secret_access_key": self.secret_access_key,
                 }
             )
 
@@ -321,12 +325,16 @@ class S3Storage:
 
     def get_config(self) -> dict[str, Any]:
         """Return S3 config dict suitable for passing to containers."""
-        return {
+        config = {
             "bucket": self.bucket,
             "region": self.region,
-            "aws_access_key_id": os.getenv("AWS_ACCESS_KEY_ID", ""),
-            "aws_secret_access_key": os.getenv("AWS_SECRET_ACCESS_KEY", ""),
+            "aws_access_key_id": self.access_key_id or "",
+            "aws_secret_access_key": self.secret_access_key or "",
         }
+        # Include endpoint_url for MinIO/LocalStack
+        if self.endpoint_url:
+            config["endpoint_url"] = self.endpoint_url
+        return config
 
 
 def generate_timestamp() -> str:
