@@ -178,6 +178,42 @@ class S3Storage:
         log.info("storage.get_latest_script.not_found", prefix=prefix, filename=filename)
         return None
 
+    def list_prefixes(self, limit: int = 100) -> list[str]:
+        """List all available catalog prefixes in the bucket.
+
+        Returns:
+            List of prefixes (e.g., ["customer-123/orders", "customer-456/users"])
+        """
+        # List top-level prefixes (assumes structure: prefix/timestamp/files)
+        # We need to scan two levels deep to get customer-id/database-name format
+        try:
+            response = self.s3.list_objects_v2(
+                Bucket=self.bucket, Prefix="", Delimiter="/"
+            )
+        except Exception as e:
+            log.warning("storage.list_prefixes.error", error=str(e))
+            return []
+
+        prefixes = []
+        # First level: customer IDs
+        for item in response.get("CommonPrefixes", []):
+            customer_prefix = item["Prefix"].rstrip("/")
+
+            # Second level: database names under each customer
+            try:
+                sub_response = self.s3.list_objects_v2(
+                    Bucket=self.bucket, Prefix=f"{customer_prefix}/", Delimiter="/"
+                )
+                for sub_item in sub_response.get("CommonPrefixes", []):
+                    full_prefix = sub_item["Prefix"].rstrip("/")
+                    prefixes.append(full_prefix)
+            except Exception as e:
+                log.warning("storage.list_prefixes.sub.error", error=str(e))
+                continue
+
+        log.info("storage.list_prefixes", count=len(prefixes))
+        return prefixes[:limit]
+
     def list_timestamps(self, prefix: str, limit: int = 100) -> list[str]:
         """List timestamps for a given prefix, most recent first.
 
@@ -231,6 +267,63 @@ class S3Storage:
 
         log.info("storage.list_catalogs", prefix=prefix, timestamp=timestamp, count=len(catalogs))
         return catalogs
+
+    def list_all_files(
+        self, prefix: str, timestamp: str
+    ) -> dict[str, list[dict[str, str]]]:
+        """List all files for a given timestamp, categorized by type.
+
+        Args:
+            prefix: S3 prefix
+            timestamp: ISO timestamp
+
+        Returns:
+            Dict with categorized files: {
+                "html": [...],
+                "scripts": [...],
+                "comments": [...],
+                "other": [...]
+            }
+        """
+        key_prefix = f"{prefix}/{timestamp}/"
+
+        response = self.s3.list_objects_v2(Bucket=self.bucket, Prefix=key_prefix)
+
+        files = {
+            "html": [],
+            "scripts": [],
+            "comments": [],
+            "other": []
+        }
+
+        for obj in response.get("Contents", []):
+            key = obj["Key"]
+            filename = key.split("/")[-1]
+
+            # Skip the timestamp directory itself
+            if key == key_prefix:
+                continue
+
+            file_info = {
+                "filename": filename,
+                "key": key,
+                "size": obj.get("Size", 0),
+            }
+
+            # Categorize by type
+            if "/comments/" in key:
+                files["comments"].append(file_info)
+            elif key.endswith(".html"):
+                files["html"].append(file_info)
+            elif key.endswith(".py"):
+                files["scripts"].append(file_info)
+            else:
+                files["other"].append(file_info)
+
+        log.info("storage.list_all_files", prefix=prefix, timestamp=timestamp,
+                 html=len(files["html"]), scripts=len(files["scripts"]),
+                 comments=len(files["comments"]))
+        return files
 
     def write_comment(
         self, prefix: str, timestamp: str, user: str, comment: str

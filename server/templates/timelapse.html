@@ -1,83 +1,97 @@
-{% extends "base.html" %}
-
-{% block title %}Timelapse - {{ prefix }}{% endblock %}
-
-{% block content %}
+{% extends "base.html" %} {% block title %}Catalog History - {{ prefix }}{%
+endblock %} {% block content %}
 <div class="breadcrumb">
-    <a href="/">Home</a> /
-    <span>{{ prefix }}</span> /
-    <span>Timelapse</span>
+  <a href="/">Home</a> /
+  <span>{{ prefix }}</span>
 </div>
 
-<h2>Catalog Timelapse</h2>
+<h2>Catalog History</h2>
 <p class="subtitle">
-    <strong>Prefix:</strong> {{ prefix }}<br>
-    <strong>Total Snapshots:</strong> {{ timestamps|length }}
+  <strong>Prefix:</strong> {{ prefix }}<br />
+  <strong>Total Snapshots:</strong> {{ catalog_runs|length }}
 </p>
 
 <div class="actions">
-    <a href="/database/current?prefix={{ prefix }}" class="button">View Latest</a>
-    <a href="/?prefix={{ prefix }}" class="button secondary">Back</a>
+  <a href="/" class="button secondary">Back to Home</a>
 </div>
 
-<div class="timelapse-viewer">
-    <div class="timeline">
-        <h3>Select Timestamp</h3>
-        <div class="timeline-list">
-            {% for ts in timestamps %}
-            <div
-                class="timeline-item {% if loop.first %}active{% endif %}"
-                hx-get="/api/catalog/list?prefix={{ prefix }}&timestamp={{ ts }}"
-                hx-target="#catalog-list"
-                hx-swap="innerHTML"
-                onclick="setActiveTimestamp(this)">
-                <span class="timestamp">{{ ts }}</span>
-                {% if loop.first %}<span class="badge">Latest</span>{% endif %}
-            </div>
+<div class="catalog-table-container">
+  <table class="catalog-table">
+    <thead>
+      <tr>
+        <th>Timestamp</th>
+        <th>Catalog</th>
+        <th>Summary</th>
+        <th>Scripts</th>
+        <th>Comments</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for run in catalog_runs %}
+      <tr>
+        <td class="timestamp-cell">
+          <strong>{{ run.timestamp }}</strong>
+          {% if loop.first %}
+          <span class="badge">Latest</span>
+          {% endif %}
+        </td>
+        <td>
+          {% for file in run.files.html %} {% if file.filename == 'catalog.html'
+          %}
+          <a
+            href="/api/catalog/view?prefix={{ prefix }}&timestamp={{ run.timestamp }}&filename={{ file.filename }}"
+            class="file-link"
+            target="_blank"
+          >
+            📊 View Catalog
+          </a>
+          {% endif %} {% endfor %}
+        </td>
+        <td>
+          {% for file in run.files.html %} {% if file.filename ==
+          'recent_summary.html' %}
+          <a
+            href="/api/catalog/view?prefix={{ prefix }}&timestamp={{ run.timestamp }}&filename={{ file.filename }}"
+            class="file-link"
+            target="_blank"
+          >
+            📈 View Summary
+          </a>
+          {% endif %} {% endfor %}
+        </td>
+        <td>
+          {% if run.files.scripts %}
+          <div class="file-list">
+            {% for file in run.files.scripts %}
+            <a
+              href="/api/catalog/view?prefix={{ prefix }}&timestamp={{ run.timestamp }}&filename={{ file.filename }}"
+              class="file-link"
+              target="_blank"
+            >
+              🐍 {{ file.filename }}
+            </a>
             {% endfor %}
-        </div>
-    </div>
-
-    <div class="catalog-panel">
-        <h3>Available Catalogs</h3>
-        <div id="catalog-list">
-            <!-- Loaded via htmx when timestamp selected -->
-            <div
-                hx-get="/api/catalog/list?prefix={{ prefix }}&timestamp={{ timestamps[0] }}"
-                hx-trigger="load"
-                hx-swap="innerHTML">
-                Loading...
-            </div>
-        </div>
-
-        <h3>Catalog Content</h3>
-        <div id="catalog-content" class="catalog-content">
-            <p class="hint">Select a catalog file from above to view</p>
-        </div>
-    </div>
+          </div>
+          {% else %}
+          <span class="empty-cell">—</span>
+          {% endif %}
+        </td>
+        <td>
+          {% if run.files.comments %}
+          <span class="comment-count">💬 {{ run.files.comments|length }}</span>
+          {% else %}
+          <span class="empty-cell">—</span>
+          {% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
 </div>
 
-<script>
-function setActiveTimestamp(element) {
-    document.querySelectorAll('.timeline-item').forEach(item => item.classList.remove('active'));
-    element.classList.add('active');
-}
-
-function loadCatalog(prefix, timestamp, filename, button) {
-    document.querySelectorAll('.catalog-file').forEach(item => item.classList.remove('active'));
-    button.classList.add('active');
-
-    htmx.ajax('GET', `/api/catalog/content?prefix=${prefix}&timestamp=${timestamp}&filename=${filename}`, {
-        target: '#catalog-content',
-        swap: 'innerHTML'
-    });
-}
-</script>
-
-<!-- Template for catalog list (rendered by HTMX) -->
-<template id="catalog-list-template">
-    <div class="catalog-files">
-        <!-- This will be populated by the API response -->
-    </div>
-</template>
-{% endblock %}
+{% if not catalog_runs %}
+<div class="empty-state">
+  <p>No catalog runs found for this prefix.</p>
+  <a href="/" class="button">Back to Home</a>
+</div>
+{% endif %} {% endblock %}

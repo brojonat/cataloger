@@ -1,0 +1,21 @@
+{% if catalogs %}
+<div class="catalog-list">
+  {% for catalog in catalogs %}
+  <div class="catalog-item">
+    <div class="catalog-info">
+      <strong>{{ catalog.prefix }}</strong>
+      <span class="timestamp">{{ catalog.timestamp }}</span>
+    </div>
+    <div class="catalog-actions">
+      <a href="/database/timelapse?prefix={{ catalog.prefix }}" class="btn-link"
+        >View History</a
+      >
+    </div>
+  </div>
+  {% endfor %}
+</div>
+{% else %}
+<p class="no-results">
+  No catalogs found yet. Create your first catalog above!
+</p>
+{% endif %}

@@ -1,14 +1,14 @@
 import logging
 import os
 import sys
+import traceback
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Dict
 
 import anthropic
 import structlog
-from dbos import DBOS, DBOSConfig
-from fastapi import Depends, FastAPI, HTTPException, Request, status
+from fastapi import Depends, FastAPI, HTTPException, Request, Response, status
 from fastapi.responses import HTMLResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from fastapi.staticfiles import StaticFiles
@@ -16,20 +16,12 @@ from fastapi.templating import Jinja2Templates
 from jose import JWTError, jwt
 from prometheus_fastapi_instrumentator import Instrumentator
 from pydantic import BaseModel, Field
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from cataloger.container.pool import ContainerPool
 from cataloger.context import generate_context_summary, strip_html_tags
 from cataloger.storage.s3 import S3Storage
 from cataloger.workflow.catalog import CatalogWorkflow
-
-# -------------------------
-# DBOS Configuration
-# -------------------------
-config: DBOSConfig = {
-    "name": "cataloger",
-    "system_database_url": os.getenv("DBOS_SYSTEM_DATABASE_URL"),
-}
-DBOS(config=config)
 
 # -------------------------
 # Logging configuration
@@ -98,6 +90,7 @@ container_pool: ContainerPool | None = None
 s3_storage: S3Storage | None = None
 catalog_workflow: CatalogWorkflow | None = None
 anthropic_client: anthropic.Anthropic | None = None
+_services_initialized: bool = False
 
 
 # -------------------------
@@ -106,8 +99,13 @@ anthropic_client: anthropic.Anthropic | None = None
 
 
 def initialize_services():
-    """Initialize all services. Must be called before DBOS.launch()."""
-    global container_pool, s3_storage, catalog_workflow, anthropic_client
+    """Initialize all services."""
+    global container_pool, s3_storage, catalog_workflow, anthropic_client, _services_initialized
+
+    # Skip if already initialized (guards against multiple calls in same process)
+    if _services_initialized:
+        log.info("service.already_initialized", skip=True)
+        return
 
     log.info("service.initialize")
 
@@ -118,8 +116,8 @@ def initialize_services():
         sys.exit(1)
     anthropic_client = anthropic.Anthropic(api_key=llm_api_key)
 
-    # Get model name (defaults to claude-sonnet-4-0)
-    model_name = os.getenv("MODEL_NAME", "claude-sonnet-4-0")
+    # Get model name (defaults to claude-haiku-4-5)
+    model_name = os.getenv("MODEL_NAME", "claude-haiku-4-5")
 
     # Initialize S3 storage
     s3_bucket = os.getenv("S3_BUCKET")
@@ -145,20 +143,33 @@ def initialize_services():
     pool_size = int(os.getenv("CONTAINER_POOL_SIZE", "5"))
     container_pool = ContainerPool(image_name=container_image, pool_size=pool_size)
 
-    # Initialize catalog workflow (must be before DBOS.launch())
+    # Initialize catalog workflow
     catalog_workflow = CatalogWorkflow(
         container_pool=container_pool,
         s3_storage=s3_storage,
         anthropic_client=anthropic_client,
         model_name=model_name,
     )
-
+    _services_initialized = True
     log.info("service.initialized", model=model_name)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     log.info("service.startup")
+
+    # Check and log service availability at startup
+    all_available, missing = check_service_availability()
+    if all_available:
+        log.info("service.startup.check", status="all_services_available")
+    else:
+        log.warning(
+            "service.startup.check",
+            status="missing_services",
+            missing=missing,
+            note="API endpoints may return 503 errors",
+        )
+
     try:
         yield
     finally:
@@ -167,10 +178,68 @@ async def lifespan(app: FastAPI):
             container_pool.cleanup()
 
 
-# Initialize services before creating FastAPI app (must happen before DBOS auto-launches)
+# -------------------------
+# Error logging middleware
+# -------------------------
+
+
+class ErrorLoggingMiddleware(BaseHTTPMiddleware):
+    """Middleware to log all 5XX responses with detailed error information."""
+
+    async def dispatch(self, request: Request, call_next):
+        try:
+            response = await call_next(request)
+
+            # Log all 5XX responses
+            if response.status_code >= 500:
+                # Try to read response body for error details
+                body = b""
+                async for chunk in response.body_iterator:
+                    body += chunk
+
+                # Create new response with same content
+                response = Response(
+                    content=body,
+                    status_code=response.status_code,
+                    headers=dict(response.headers),
+                    media_type=response.media_type,
+                )
+
+                # Log the error with full context
+                log.error(
+                    "http.5xx_response",
+                    status_code=response.status_code,
+                    method=request.method,
+                    url=str(request.url),
+                    path=request.url.path,
+                    query_params=dict(request.query_params),
+                    client_host=request.client.host if request.client else None,
+                    response_body=body.decode("utf-8", errors="replace")[:1000],  # First 1000 chars
+                )
+
+            return response
+
+        except Exception as e:
+            # Log unhandled exceptions
+            log.error(
+                "http.unhandled_exception",
+                error=str(e),
+                error_type=type(e).__name__,
+                method=request.method,
+                url=str(request.url),
+                path=request.url.path,
+                traceback=traceback.format_exc(),
+            )
+            raise
+
+
+# Initialize services before creating FastAPI app
 initialize_services()
 
 app = FastAPI(title=os.getenv("SERVICE_NAME", "cataloger"), lifespan=lifespan)
+
+# Add error logging middleware
+app.add_middleware(ErrorLoggingMiddleware)
 
 # Prometheus: exposes /metrics by default
 Instrumentator().instrument(app).expose(app)
@@ -179,6 +248,39 @@ Instrumentator().instrument(app).expose(app)
 BASE_DIR = Path(__file__).resolve().parent
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
+
+
+# -------------------------
+# Helper Functions
+# -------------------------
+
+
+def check_service_availability():
+    """Check which services are available and log if any are missing.
+
+    Returns:
+        tuple: (all_available: bool, missing_services: list[str])
+    """
+    missing = []
+
+    if s3_storage is None:
+        missing.append("s3_storage")
+    if catalog_workflow is None:
+        missing.append("catalog_workflow")
+    if anthropic_client is None:
+        missing.append("anthropic_client")
+    if container_pool is None:
+        missing.append("container_pool")
+
+    if missing:
+        log.error(
+            "service.availability_check_failed",
+            missing_services=missing,
+            note="Services not initialized - this will cause 503 errors",
+        )
+        return False, missing
+
+    return True, []
 
 
 # -------------------------
@@ -245,40 +347,11 @@ async def root(request: Request):
     return templates.TemplateResponse("index.html", {"request": request})
 
 
-@app.get("/database/current", response_class=HTMLResponse, tags=["ui"])
-async def database_current(request: Request, prefix: str):
-    """View the most recent catalog for a database prefix."""
-    if not s3_storage:
-        raise HTTPException(status_code=503, detail="S3 storage not initialized")
-
-    # Get latest timestamp
-    timestamps = s3_storage.list_timestamps(prefix, limit=1)
-    if not timestamps:
-        return templates.TemplateResponse(
-            "error.html",
-            {"request": request, "message": f"No catalogs found for prefix: {prefix}"},
-        )
-
-    latest_timestamp = timestamps[0]
-
-    # Get all files for this timestamp
-    catalogs = s3_storage.list_catalogs(prefix, latest_timestamp)
-
-    return templates.TemplateResponse(
-        "current.html",
-        {
-            "request": request,
-            "prefix": prefix,
-            "timestamp": latest_timestamp,
-            "catalogs": catalogs,
-        },
-    )
-
-
 @app.get("/database/timelapse", response_class=HTMLResponse, tags=["ui"])
 async def database_timelapse(request: Request, prefix: str):
     """View all catalogs for a database prefix over time."""
     if not s3_storage:
+        check_service_availability()
         raise HTTPException(status_code=503, detail="S3 storage not initialized")
 
     # Get all timestamps
@@ -289,10 +362,77 @@ async def database_timelapse(request: Request, prefix: str):
             {"request": request, "message": f"No catalogs found for prefix: {prefix}"},
         )
 
+    # Get files for each timestamp
+    catalog_runs = []
+    for ts in timestamps:
+        files = s3_storage.list_all_files(prefix, ts)
+        catalog_runs.append({
+            "timestamp": ts,
+            "files": files,
+        })
+
     return templates.TemplateResponse(
         "timelapse.html",
-        {"request": request, "prefix": prefix, "timestamps": timestamps},
+        {"request": request, "prefix": prefix, "catalog_runs": catalog_runs},
     )
+
+
+@app.get("/api/catalog/view", response_class=HTMLResponse, tags=["api"])
+async def view_catalog_file(prefix: str, timestamp: str, filename: str):
+    """View a catalog file (HTML or script) directly."""
+    if not s3_storage:
+        check_service_availability()
+        raise HTTPException(status_code=503, detail="S3 storage not initialized")
+
+    try:
+        # Try reading as HTML first
+        if filename.endswith('.html'):
+            content = s3_storage.read_html(prefix, timestamp, filename)
+            return HTMLResponse(content=content)
+        elif filename.endswith('.py'):
+            content = s3_storage.read_script(prefix, timestamp, filename)
+            if content is None:
+                raise HTTPException(status_code=404, detail=f"Script not found: {filename}")
+            # Return Python code as HTML with syntax highlighting
+            html_content = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <title>{filename}</title>
+                <style>
+                    body {{
+                        font-family: monospace;
+                        padding: 2rem;
+                        background: #1e1e1e;
+                        color: #d4d4d4;
+                        margin: 0;
+                    }}
+                    pre {{
+                        background: #1e1e1e;
+                        padding: 1rem;
+                        border-radius: 4px;
+                        overflow-x: auto;
+                        white-space: pre-wrap;
+                        word-wrap: break-word;
+                    }}
+                    h1 {{
+                        color: #569cd6;
+                        border-bottom: 2px solid #569cd6;
+                        padding-bottom: 0.5rem;
+                    }}
+                </style>
+            </head>
+            <body>
+                <h1>📄 {filename}</h1>
+                <pre>{content}</pre>
+            </body>
+            </html>
+            """
+            return HTMLResponse(content=html_content)
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported file type: {filename}")
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @app.get("/api/catalog/content", tags=["api"])
@@ -301,6 +441,7 @@ async def get_catalog_content(
 ):
     """Fetch catalog HTML content from S3."""
     if not s3_storage:
+        check_service_availability()
         raise HTTPException(status_code=503, detail="S3 storage not initialized")
 
     try:
@@ -318,6 +459,7 @@ async def get_catalog_content(
 async def list_catalog_files(prefix: str, timestamp: str, request: Request):
     """List all catalog files for a specific timestamp."""
     if not s3_storage:
+        check_service_availability()
         raise HTTPException(status_code=503, detail="S3 storage not initialized")
 
     catalogs = s3_storage.list_catalogs(prefix, timestamp)
@@ -330,6 +472,39 @@ async def list_catalog_files(prefix: str, timestamp: str, request: Request):
             "prefix": prefix,
             "timestamp": timestamp,
             "catalogs": catalogs,
+        },
+    )
+
+
+@app.get("/api/catalog/recent", response_class=HTMLResponse, tags=["api"])
+async def list_recent_catalogs(request: Request, limit: int = 10):
+    """List recent catalogs across all prefixes."""
+    if not s3_storage:
+        check_service_availability()
+        raise HTTPException(status_code=503, detail="S3 storage not initialized")
+
+    # Get all prefixes
+    prefixes = s3_storage.list_prefixes(limit=50)
+
+    # Get latest timestamp for each prefix
+    recent_catalogs = []
+    for prefix in prefixes:
+        timestamps = s3_storage.list_timestamps(prefix, limit=1)
+        if timestamps:
+            recent_catalogs.append({
+                "prefix": prefix,
+                "timestamp": timestamps[0],
+            })
+
+    # Sort by timestamp (newest first)
+    recent_catalogs.sort(key=lambda x: x["timestamp"], reverse=True)
+
+    # Return HTML fragment for htmx
+    return templates.TemplateResponse(
+        "recent_catalogs_fragment.html",
+        {
+            "request": request,
+            "catalogs": recent_catalogs[:limit],
         },
     )
 
@@ -355,6 +530,7 @@ async def get_catalog_context(
         HTML summary document (or plain text if strip_tags=True)
     """
     if not s3_storage:
+        check_service_availability()
         raise HTTPException(status_code=503, detail="S3 storage not initialized")
 
     try:
@@ -386,6 +562,7 @@ def add_catalog_comment(
     This allows human feedback to be included in future catalog contexts.
     """
     if not s3_storage:
+        check_service_availability()
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="S3 storage not initialized",
@@ -438,7 +615,10 @@ def create_catalog(
 
     Returns S3 URIs for both HTML reports.
     """
-    if not catalog_workflow:
+    # Check if workflow is available
+    if catalog_workflow is None:
+        # Log detailed service availability info
+        check_service_availability()
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Catalog workflow not initialized",
@@ -472,10 +652,16 @@ def create_catalog(
 if __name__ == "__main__":
     import uvicorn
 
-    # Launch DBOS before starting the server
-    # Note: initialize_services() is called automatically via the lifespan event
-    DBOS.launch()
-
     host = os.getenv("HOST", "0.0.0.0")
     port = int(os.getenv("PORT", "8000"))
-    uvicorn.run(app, host=host, port=port, reload=False)
+    reload = os.getenv("RELOAD", "false").lower() == "true"
+
+    log.info("launcher.starting", reload=reload)
+    uvicorn.run(
+        "server.main:app" if reload else app,
+        host=host,
+        port=port,
+        reload=reload,
+        reload_dirs=["./server", "./src"] if reload else None,
+        log_level="info",
+    )

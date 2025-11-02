@@ -1,4 +1,4 @@
-"""DBOS workflow for catalog generation."""
+"""Plain function workflow for catalog generation."""
 
 import base64
 import os
@@ -6,7 +6,6 @@ from typing import Any
 
 import anthropic
 import structlog
-from dbos import DBOS, DBOSConfiguredInstance
 
 from ..agent.loop import AgentLoop
 from ..container.pool import ContainerPool
@@ -16,8 +15,7 @@ from ..storage.s3 import S3Storage, generate_timestamp
 log = structlog.get_logger()
 
 
-@DBOS.dbos_class()
-class CatalogWorkflow(DBOSConfiguredInstance):
+class CatalogWorkflow:
     """Orchestrates the catalog generation workflow.
 
     Workflow steps:
@@ -34,16 +32,13 @@ class CatalogWorkflow(DBOSConfiguredInstance):
         container_pool: ContainerPool,
         s3_storage: S3Storage,
         anthropic_client: anthropic.Anthropic,
-        model_name: str = "claude-sonnet-4-0",
+        model_name: str = "claude-haiku-4-5",
     ):
-        # Must call super().__init__ with a unique config_name for DBOS registration
-        super().__init__(config_name="catalog_workflow")
         self.container_pool = container_pool
         self.s3_storage = s3_storage
         self.anthropic_client = anthropic_client
         self.model_name = model_name
 
-    @DBOS.workflow()
     def run(
         self,
         db_connection_string: str,
