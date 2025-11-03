@@ -54,14 +54,179 @@ uv run cataloger catalog \
 
 ## Architecture
 
+### System Architecture
+
+The following diagram shows the high-level system architecture and how components interact:
+
+```mermaid
+graph TB
+    subgraph "Client Layer"
+        CLI[CLI Tool]
+        HTTP[HTTP Client]
+    end
+
+    subgraph "API Service"
+        FastAPI[FastAPI Server<br/>Port 8000]
+        Auth[JWT Auth]
+        Metrics[Prometheus Metrics]
+    end
+
+    subgraph "Orchestration Layer"
+        Workflow[CatalogWorkflow<br/>Orchestrator]
+    end
+
+    subgraph "Execution Layer"
+        Pool[Container Pool<br/>Pre-warmed Containers]
+        Runtime1[Container Runtime 1<br/>Python + ibis + boto3]
+        Runtime2[Container Runtime 2<br/>Python + ibis + boto3]
+        RuntimeN[Container Runtime N<br/>Python + ibis + boto3]
+
+        Pool --> Runtime1
+        Pool --> Runtime2
+        Pool --> RuntimeN
+    end
+
+    subgraph "Agent Layer"
+        AgentLoop[Agent Loop<br/>Tool Calling Manager]
+        ClaudeAPI[Claude API<br/>Anthropic]
+
+        AgentLoop <-->|Tool Calls| ClaudeAPI
+    end
+
+    subgraph "Storage Layer"
+        S3[S3 Storage<br/>MinIO/AWS S3]
+        Catalogs[(HTML Catalogs<br/>Scripts & Comments)]
+
+        S3 --> Catalogs
+    end
+
+    subgraph "Data Sources"
+        DB1[(PostgreSQL)]
+        DB2[(DuckDB)]
+        DB3[(MySQL)]
+    end
+
+    CLI -->|POST /catalog| FastAPI
+    HTTP -->|POST /catalog| FastAPI
+    FastAPI --> Auth
+    FastAPI --> Metrics
+    Auth --> Workflow
+
+    Workflow -->|Acquire| Pool
+    Pool -->|Provide| Runtime1
+    Runtime1 -->|Execute Code| AgentLoop
+
+    AgentLoop -->|execute_python| Runtime1
+    AgentLoop -->|submit_html| Workflow
+
+    Runtime1 -.->|Read-only| DB1
+    Runtime1 -.->|Read-only| DB2
+    Runtime1 -.->|Read-only| DB3
+
+    Runtime1 -->|Read Previous| S3
+    Workflow -->|Write Results| S3
+
+    style FastAPI fill:#4A90E2
+    style Workflow fill:#50C878
+    style AgentLoop fill:#E67E22
+    style S3 fill:#9B59B6
+    style ClaudeAPI fill:#E74C3C
 ```
-POST /catalog
-  ↓
-catalog_workflow(db_conn, tables, s3_prefix)
-  ↓
-  ├─ Cataloging Agent → s3://{prefix}/{timestamp}/catalog.html
-  ↓
-  └─ Summary Agent → s3://{prefix}/{timestamp}/recent_summary.html
+
+### Workflow Execution Flow
+
+This diagram shows the detailed business logic flow when a catalog request is processed:
+
+```mermaid
+sequenceDiagram
+    participant Client
+    participant API as FastAPI Server
+    participant Auth as JWT Auth
+    participant Workflow as CatalogWorkflow
+    participant Pool as Container Pool
+    participant Runtime as Container Runtime
+    participant Agent as Agent Loop
+    participant Claude as Claude API
+    participant S3 as S3 Storage
+    participant DB as Database
+
+    Client->>API: POST /catalog<br/>{db_conn, tables, s3_prefix}
+    API->>Auth: Verify JWT Token
+    Auth-->>API: Claims
+
+    API->>Workflow: run(db_conn, tables, s3_prefix)
+
+    Note over Workflow: Generate Timestamp
+    Workflow->>Workflow: Load Prompts from Env
+
+    Workflow->>S3: Get Previous Context
+    S3-->>Workflow: context_summary.html (if exists)
+
+    Workflow->>Pool: acquire(db_conn, s3_config)
+    Pool-->>Workflow: ContainerRuntime
+
+    Note over Workflow,Runtime: Phase 1: Cataloging Agent
+
+    Workflow->>Agent: run(cataloging_prompt, {tables})
+
+    loop Agent Loop (max 50 iterations)
+        Agent->>Claude: messages.create()<br/>system=prompt, tools=[execute_python, submit_html]
+        Claude-->>Agent: Response with tool_use
+
+        alt Tool: execute_python
+            Agent->>Runtime: execute(code)
+            Runtime->>DB: Query Tables (Read-only)
+            DB-->>Runtime: Results
+            Runtime-->>Agent: Output Stream
+            Agent->>Claude: tool_result
+        else Tool: submit_html
+            Agent->>Workflow: Return HTML
+            Note over Agent: Loop Terminates
+        end
+    end
+
+    Workflow->>Runtime: get_session_script()
+    Runtime-->>Workflow: catalog_script.py
+
+    Workflow->>S3: write_script(catalog_script.py)
+    Workflow->>S3: write_html(catalog.html)
+    S3-->>Workflow: catalog_uri
+
+    Workflow->>Runtime: reset()
+
+    Note over Workflow,Runtime: Phase 2: Summary Agent
+
+    Workflow->>Agent: run(summary_prompt, {s3_prefix, timestamp})
+
+    loop Agent Loop
+        Agent->>Claude: messages.create()
+        Claude-->>Agent: Response with tool_use
+
+        alt Tool: execute_python
+            Agent->>Runtime: execute(code with boto3)
+            Runtime->>S3: List & Read Previous Catalogs
+            S3-->>Runtime: Previous HTML Catalogs
+            Runtime-->>Agent: Analysis Output
+            Agent->>Claude: tool_result
+        else Tool: submit_html
+            Agent->>Workflow: Return Summary HTML
+            Note over Agent: Loop Terminates
+        end
+    end
+
+    Workflow->>Runtime: get_session_script()
+    Runtime-->>Workflow: summary_script.py
+
+    Workflow->>S3: write_script(summary_script.py)
+    Workflow->>S3: write_html(recent_summary.html)
+    S3-->>Workflow: summary_uri
+
+    Workflow->>Pool: release(runtime)
+
+    Workflow-->>API: {timestamp, catalog_uri, summary_uri}
+    API-->>Client: 200 OK + Response JSON
+
+    Note over Client: View catalogs at:<br/>http://localhost:8000
 ```
 
 ### Components
