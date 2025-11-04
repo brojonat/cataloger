@@ -64,7 +64,7 @@ The server will be available at `http://localhost:8000`.
 ### Generate a test token
 
 ```bash
-uv run cataloger generate-token your-secret-key
+uv run cataloger generate-token your-strong-shared-secret
 ```
 
 ### Trigger a catalog
@@ -72,10 +72,10 @@ uv run cataloger generate-token your-secret-key
 Using the CLI:
 ```bash
 export CATALOGER_API_URL=http://localhost:8000
-export CATALOGER_AUTH_TOKEN=<your-token>
+export CATALOGER_AUTH_TOKEN=$(uv run cataloger generate-token your-strong-shared-secret)
 
 uv run cataloger catalog \
-  --db-conn "postgresql://user:pass@host:5432/db" \
+  --db-conn "duckdb:///data/sample_ecommerce.duckdb" \
   --table users --table orders --table products \
   --s3-prefix "customer-123/prod"
 ```
